@@ -11,6 +11,7 @@ const STATUS_COLORS = {
 };
 
 const URDU_AYAT = 'دیانت وہ ہے جو اُس وقت بھی قائم رہے جب کوئی دیکھ نہ رہا ہو — کیونکہ اللہ سب کچھ دیکھ رہا ہے۔';
+// eslint-disable-next-line no-unused-vars
 const AYAT_EN  = '"Integrity is what remains when no one is watching — because Allah sees everything."';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
@@ -19,35 +20,38 @@ const todayLocal = () => new Date().toISOString().split('T')[0];
 const formatDateLabel = (dateStr) =>
   new Date(dateStr + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
 
-// FIX 1: Excel serial fraction → HH:MM
-// 1899-xx bug: Excel stores 0 as 1899-12-30; fraction like 0.375 = 09:00
+// safeTime: Google Sheets / Excel time → "HH:MM"
+// Rule: 0 / "00:00" / "1899-12-30T00:00Z" = empty cell → return ''
 function safeTime(val) {
-  if (val === null || val === undefined || val === '') return '';
+  if (val === null || val === undefined || val === '' || val === 0 || val === '0') return '';
   const s = String(val).trim();
+  if (!s || s === '0') return '';
   // Already HH:MM
-  if (/^\d{1,2}:\d{2}$/.test(s)) return s;
+  if (/^\d{1,2}:\d{2}$/.test(s)) return s === '00:00' ? '' : s;
   // HH:MM:SS
-  if (/^\d{1,2}:\d{2}:\d{2}$/.test(s)) return s.substring(0, 5);
-  // ISO datetime e.g. "1970-01-01T09:30:00.000Z" or "1899-12-30T09:00:00Z"
-  if (s.includes('T') || s.includes('-')) {
-    // If it contains a date part with 1899 → parse as pure time fraction from epoch
-    const t = new Date(s);
-    if (!isNaN(t)) {
-      // Use UTC hours/minutes because Google Sheets stores as UTC
-      const h = t.getUTCHours(), m = t.getUTCMinutes();
-      // 1899 date means the value was really just a time — trust H:M
+  if (/^\d{1,2}:\d{2}:\d{2}$/.test(s)) {
+    const t = s.substring(0, 5);
+    return t === '00:00' ? '' : t;
+  }
+  // ISO datetime — 1899-12-30T09:00:00.000Z from Sheets
+  if (s.includes('T') || (s.includes('-') && s.length > 7)) {
+    const d = new Date(s);
+    if (!isNaN(d)) {
+      const h = d.getUTCHours(), m = d.getUTCMinutes();
+      if (h === 0 && m === 0) return ''; // empty cell stored as midnight
       return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
     }
   }
-  // Excel numeric fraction (0.0–0.9999)
+  // Excel numeric fraction (0 < n < 1)
   const n = parseFloat(s);
-  if (!isNaN(n) && n >= 0 && n < 1) {
+  if (!isNaN(n)) {
+    if (n <= 0 || n >= 1) return '';
     const totalMin = Math.round(n * 24 * 60);
-    return String(Math.floor(totalMin / 60)).padStart(2, '0') + ':' + String(totalMin % 60).padStart(2, '0');
+    const h = Math.floor(totalMin / 60), m = totalMin % 60;
+    if (h === 0 && m === 0) return '';
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
   }
-  // Looks like a plain number that might be minutes or seconds — return empty
-  if (!isNaN(n)) return '';
-  return s.substring(0, 5);
+  return '';
 }
 
 // Cross-midnight hours calc
@@ -274,7 +278,9 @@ export default function EmployeePage() {
 
   const totalHrs     = tasks.reduce((s, t) => s + Number(t.productive_hours), 0).toFixed(2);
   const nLabel       = nightLabel(officeIn, officeOut);
-  const hasNewTasks  = tasks.some(t => !isTaskLocked(t)); // at least one editable task
+  // eslint-disable-next-line no-unused-vars
+  const hasNewTasks  = tasks.some(t => !isTaskLocked(t));
+  // eslint-disable-next-line no-unused-vars
   const canSubmit    = !submitted && selectedDate === today;
 
   // Summary
