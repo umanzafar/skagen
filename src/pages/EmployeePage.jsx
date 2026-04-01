@@ -439,37 +439,38 @@ export default function EmployeePage() {
 
               {tasks.map((task, idx) => {
                 const locked = isTaskLocked(task);
+                // is_assigned can come as true, "true", "TRUE" from sheets
+                const isAssigned = task.is_assigned === true || String(task.is_assigned).toLowerCase() === 'true';
                 return (
                   <div key={task.id} style={{
-                    border: `2px solid ${task.is_assigned ? '#C4B5FD' : (task.task_name ? '#e2e8f0' : '#fde68a')}`,
-                    borderLeft: `4px solid ${task.is_assigned ? '#8B5CF6' : (STATUS_COLORS[task.status] || '#e2e8f0')}`,
+                    border: `2px solid ${isAssigned ? '#C4B5FD' : (task.task_name ? '#e2e8f0' : '#fde68a')}`,
+                    borderLeft: `4px solid ${isAssigned ? '#8B5CF6' : (STATUS_COLORS[task.status] || '#e2e8f0')}`,
                     borderRadius: '14px', padding: '16px', marginBottom: '14px',
-                    background: locked ? '#fafafa' : task.is_assigned ? '#FAFAFF' : 'white',
+                    background: locked ? '#fafafa' : isAssigned ? '#FAFAFF' : 'white',
                     opacity: locked ? 0.85 : 1
                   }}>
                     {/* Task header */}
                     <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px',flexWrap:'wrap',gap:'6px' }}>
                       <div style={{ display:'flex',alignItems:'center',gap:'6px' }}>
                         <div style={{ width:'24px',height:'24px',borderRadius:'50%',background:'linear-gradient(135deg,#1e3a5f,#4a90d9)',display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:'900',fontSize:'11px',flexShrink:0 }}>{idx + 1}</div>
-                        {task.is_assigned && <span style={{ background:'#EDE9FE',color:'#5B21B6',fontSize:'10px',fontWeight:'700',padding:'2px 7px',borderRadius:'10px' }}>📌 Assigned</span>}
+                        {isAssigned && <span style={{ background:'#EDE9FE',color:'#5B21B6',fontSize:'10px',fontWeight:'700',padding:'2px 7px',borderRadius:'10px' }}>📌 Manager ne assign kiya</span>}
                         {locked && <span style={{ background:(STATUS_COLORS[task.status]||'#6B7280')+'20',color:STATUS_COLORS[task.status]||'#6B7280',fontSize:'10px',fontWeight:'700',padding:'2px 8px',borderRadius:'10px' }}>🔒 {task.status}</span>}
                       </div>
                       <div style={{ display:'flex',alignItems:'center',gap:'4px',flexWrap:'wrap' }}>
-                        {/* Status buttons — only for unlocked tasks */}
                         {!locked && ['Briefed','In Progress'].map(s => (
                           <button key={s} onClick={() => updateTask(task.id, 'status', s)} style={{ padding:'4px 10px',borderRadius:'8px',border:'2px solid',borderColor:task.status===s?STATUS_COLORS[s]:'#e2e8f0',background:task.status===s?STATUS_COLORS[s]+'20':'white',color:task.status===s?STATUS_COLORS[s]:'#94a3b8',fontWeight:'700',fontSize:'10px',cursor:'pointer',whiteSpace:'nowrap' }}>{s}</button>
                         ))}
-                        {/* Delete — only unlocked tasks when not whole-submitted */}
-                        {!locked && tasks.filter(t => !isTaskLocked(t)).length > 1 && (
+                        {!locked && tasks.filter(t => !isTaskLocked(t)).length > 1 && !isAssigned && (
                           <button onClick={() => setTasks(t => t.filter(x => x.id !== task.id))} style={{ background:'#FEE2E2',color:'#DC2626',border:'none',borderRadius:'6px',padding:'4px 8px',cursor:'pointer',fontSize:'11px',marginLeft:'4px' }}>🗑</button>
                         )}
                       </div>
                     </div>
 
-                    {/* Task name */}
+                    {/* Task name — assigned tasks ka naam lock */}
                     <input type="text" placeholder="Task ka naam likho..." value={task.task_name}
-                      onChange={e => updateTask(task.id, 'task_name', e.target.value)} disabled={locked}
-                      style={{ width:'100%',padding:'9px 12px',borderRadius:'9px',border:'2px solid #e2e8f0',marginBottom:'10px',fontSize:'14px',outline:'none',fontWeight:'600',background:locked?'#f8fafc':'white',color:'#1e293b',boxSizing:'border-box' }}/>
+                      onChange={e => updateTask(task.id, 'task_name', e.target.value)}
+                      disabled={locked || isAssigned}
+                      style={{ width:'100%',padding:'9px 12px',borderRadius:'9px',border:'2px solid #e2e8f0',marginBottom:'10px',fontSize:'14px',outline:'none',fontWeight:'600',background:(locked||isAssigned)?'#f8fafc':'white',color:'#1e293b',boxSizing:'border-box' }}/>
 
                     {/* Start / End / Break */}
                     <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px',marginBottom:'10px' }}>
@@ -499,6 +500,12 @@ export default function EmployeePage() {
                       </div>
                     </div>
 
+                    {/* Manager note */}
+                    {isAssigned && task.notes && (
+                      <div style={{ marginTop:'10px',padding:'8px 12px',background:'#EDE9FE',borderRadius:'8px',border:'1px solid #C4B5FD' }}>
+                        <p style={{ fontSize:'11px',color:'#5B21B6',fontWeight:'700' }}>📋 Manager Instructions: {task.notes}</p>
+                      </div>
+                    )}
                     {task.manager_note && task.manager_note !== 'Assigned by Manager' && (
                       <div style={{ marginTop:'10px',padding:'8px 12px',background:'#FEF2F2',borderRadius:'8px',border:'1px solid #FECACA' }}>
                         <p style={{ fontSize:'11px',color:'#EF4444',fontWeight:'700' }}>💬 Manager: {task.manager_note}</p>
