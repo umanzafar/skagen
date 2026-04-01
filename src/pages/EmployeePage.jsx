@@ -63,6 +63,17 @@ const calcHours = (start, end, brk) => {
   return Math.max(0, parseFloat(((e - s) / 3600000 - Number(brk) / 60).toFixed(2)));
 };
 
+// Format decimal hours → "1h 30m"
+const fmtHours = (decHours) => {
+  if (!decHours || decHours <= 0) return '0m';
+  const totalMin = Math.round(decHours * 60);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+};
+
 // Night shift detection: office_in >= 18:00
 const isNightShift = (officeIn) => !!officeIn && parseInt(officeIn.split(':')[0], 10) >= 18;
 const nightLabel   = (officeIn, officeOut) => {
@@ -303,7 +314,7 @@ export default function EmployeePage() {
   const summaryDates    = getSummaryDates();
   const summaryLogs     = allLogs.filter(l => summaryDates.includes(String(l.date).substring(0, 10)));
   const summaryTasks    = allTasksData.filter(t => summaryDates.includes(String(t.date).substring(0, 10)));
-  const summaryTotalHrs = summaryTasks.reduce((s, t) => s + Number(t.productive_hours || 0), 0).toFixed(1);
+  const summaryTotalHrs = fmtHours(summaryTasks.reduce((s, t) => s + Number(t.productive_hours || 0), 0));
   const summaryDaysWorked = new Set(summaryLogs.filter(l => l.submitted === true || l.submitted === 'TRUE' || l.submitted === 'true').map(l => String(l.date).substring(0, 10))).size;
 
   if (loading) return (
@@ -508,9 +519,9 @@ export default function EmployeePage() {
                           style={{ width:'100%',padding:'8px 10px',borderRadius:'8px',border:'2px solid #e2e8f0',fontSize:'12px',outline:'none',resize:'vertical',background:locked?'#f8fafc':'white',color:'#475569',fontFamily:'inherit',boxSizing:'border-box' }}/>
                       </div>
                       <div>
-                        <label style={{ fontSize:'10px',fontWeight:'700',color:'#10B981',display:'block',marginBottom:'4px' }}>⚡ Productive Hrs</label>
-                        <div style={{ padding:'14px 8px',borderRadius:'8px',textAlign:'center',background:task.productive_hours>0?'linear-gradient(135deg,#D1FAE5,#A7F3D0)':'#f1f5f9',border:`2px solid ${task.productive_hours>0?'#A7F3D0':'#e2e8f0'}`,color:task.productive_hours>0?'#059669':'#94a3b8',fontWeight:'900',fontSize:'20px' }}>
-                          {task.productive_hours} hrs
+                        <label style={{ fontSize:'10px',fontWeight:'700',color:'#10B981',display:'block',marginBottom:'4px' }}>⚡ Productive</label>
+                        <div style={{ padding:'14px 8px',borderRadius:'8px',textAlign:'center',background:task.productive_hours>0?'linear-gradient(135deg,#D1FAE5,#A7F3D0)':'#f1f5f9',border:`2px solid ${task.productive_hours>0?'#A7F3D0':'#e2e8f0'}`,color:task.productive_hours>0?'#059669':'#94a3b8',fontWeight:'900',fontSize:'16px' }}>
+                          {fmtHours(task.productive_hours)}
                         </div>
                       </div>
                     </div>
@@ -541,7 +552,7 @@ export default function EmployeePage() {
               {tasks.length > 0 && (
                 <div style={{ padding:'14px',borderRadius:'12px',background:'linear-gradient(135deg,#1e3a5f,#0f172a)',display:'flex',justifyContent:'space-between',alignItems:'center' }}>
                   <span style={{ color:'#94a3b8',fontWeight:'700',fontSize:'13px' }}>⚡ Total Productive Hrs</span>
-                  <span style={{ color:'#4ade80',fontWeight:'900',fontSize:'22px' }}>{totalHrs} hrs</span>
+                  <span style={{ color:'#4ade80',fontWeight:'900',fontSize:'22px' }}>{fmtHours(parseFloat(totalHrs))}</span>
                 </div>
               )}
             </div>
@@ -595,7 +606,7 @@ export default function EmployeePage() {
                       </div>
                       <div style={{ display:'flex',gap:'12px',alignItems:'center' }}>
                         {log && <span style={{ color:isSubmitted?'#94a3b8':'#cbd5e1',fontSize:'11px' }}>In: {log.office_in||'--'} | Out: {log.office_out||'--'}</span>}
-                        <span style={{ color:isSubmitted?'#4ade80':'#94a3b8',fontWeight:'900',fontSize:'14px' }}>⚡ {log?.total_productive_hours||0} hrs</span>
+                        <span style={{ color:isSubmitted?'#4ade80':'#94a3b8',fontWeight:'900',fontSize:'14px' }}>⚡ {fmtHours(log?.total_productive_hours||0)}</span>
                         <span style={{ fontSize:'10px',fontWeight:'700',padding:'2px 8px',borderRadius:'8px',background:isSubmitted?'rgba(16,185,129,0.2)':'rgba(239,68,68,0.1)',color:isSubmitted?'#10B981':'#EF4444' }}>
                           {isSubmitted?'Submitted':'Pending'}
                         </span>
@@ -611,7 +622,7 @@ export default function EmployeePage() {
                               {t.notes && <p style={{ fontSize:'11px',color:'#94a3b8',marginTop:'2px' }}>📝 {t.notes}</p>}
                             </div>
                             <div style={{ textAlign:'right',flexShrink:0,marginLeft:'12px' }}>
-                              <p style={{ fontWeight:'900',color:'#10B981',fontSize:'14px' }}>{t.productive_hours}h</p>
+                              <p style={{ fontWeight:'900',color:'#10B981',fontSize:'14px' }}>{fmtHours(t.productive_hours)}</p>
                               <span style={{ fontSize:'10px',fontWeight:'700',padding:'2px 6px',borderRadius:'8px',background:(STATUS_COLORS[t.status]||'#6B7280')+'20',color:STATUS_COLORS[t.status]||'#6B7280' }}>{t.status}</span>
                             </div>
                           </div>
