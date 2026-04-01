@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+// eslint-disable-next-line no-unused-vars
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
-  PieChart, Pie, LineChart, Line, Legend
+  LineChart, Line, Legend
 } from 'recharts';
 import toast from 'react-hot-toast';
 import { api } from '../api';
@@ -47,35 +48,49 @@ const getDatesInRange = (start, end) => {
 const fmtDate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 const fmtMonth = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 
-// ── FIX: 1899- bug — Excel/Sheets time value parser ──────────────────────
-// Google Sheets returns time as:
-//   "1899-12-30T09:00:00.000Z"  (ISO with 1899 date)
-//   0.375                        (Excel serial fraction)
-//   "09:00" or "09:00:00"        (plain string)
+// ── formatTime: Google Sheets / Excel time value → "HH:MM" ───────────────
+// Sheets returns time as:
+//   "1899-12-30T09:00:00.000Z"  ISO with 1899 epoch date
+//   0.375                        Excel serial fraction (0 = midnight/empty)
+//   "09:00" / "09:00:00"         plain string
+//   0 or ""                      empty cell → return ''
 function formatTime(val) {
-  if (val === null || val === undefined || val === '') return '';
+  // Strict empty check — 0 means empty cell in Sheets, not midnight
+  if (val === null || val === undefined || val === '' || val === 0 || val === '0') return '';
+
   const s = String(val).trim();
-  // Already HH:MM
-  if (/^\d{1,2}:\d{2}$/.test(s)) return s;
+  if (!s || s === '0') return '';
+
+  // Already HH:MM — but reject "00:00" (empty cell stored as midnight)
+  if (/^\d{1,2}:\d{2}$/.test(s)) {
+    return s === '00:00' ? '' : s;
+  }
   // HH:MM:SS
-  if (/^\d{1,2}:\d{2}:\d{2}$/.test(s)) return s.substring(0, 5);
-  // ISO datetime (including 1899-xx-xx from Sheets)
+  if (/^\d{1,2}:\d{2}:\d{2}$/.test(s)) {
+    const t = s.substring(0, 5);
+    return t === '00:00' ? '' : t;
+  }
+  // ISO datetime string (handles 1899-12-30T09:00:00.000Z from Sheets)
   if (s.includes('T') || (s.includes('-') && s.length > 7)) {
-    const t = new Date(s);
-    if (!isNaN(t)) {
-      const h = t.getUTCHours(), m = t.getUTCMinutes();
+    const d = new Date(s);
+    if (!isNaN(d)) {
+      const h = d.getUTCHours(), m = d.getUTCMinutes();
+      // 1899-12-30T00:00:00Z = empty cell in Sheets
+      if (h === 0 && m === 0) return '';
       return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
     }
   }
-  // Excel numeric time fraction 0.0–0.9999
+  // Excel numeric time fraction (0.0 – 0.9999)
+  // 0 = midnight = empty cell; skip it
   const n = parseFloat(s);
-  if (!isNaN(n) && n >= 0 && n < 1) {
+  if (!isNaN(n)) {
+    if (n <= 0 || n >= 1) return ''; // 0 = empty, >=1 = date serial not time
     const totalMin = Math.round(n * 24 * 60);
-    return String(Math.floor(totalMin / 60)).padStart(2, '0') + ':' + String(totalMin % 60).padStart(2, '0');
+    const h = Math.floor(totalMin / 60), m = totalMin % 60;
+    if (h === 0 && m === 0) return '';
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
   }
-  // Pure integer / unknown — not a time
-  if (!isNaN(n)) return '';
-  return s.substring(0, 5);
+  return '';
 }
 
 export default function ManagerDashboard() {
