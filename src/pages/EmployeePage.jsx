@@ -144,7 +144,22 @@ export default function EmployeePage() {
     } else {
       setOfficeIn(''); setOfficeOut(''); setSubmitted(false);
     }
-    const dayTasks = tasksList.filter(t => String(t.date).substring(0, 10) === dateToLoad);
+
+    // FIX: filter by date AND employee (id or name match)
+    const myId   = String(user?.id || '').trim().toLowerCase();
+    const myName = String(user?.name || '').trim().toLowerCase();
+
+    const dayTasks = tasksList.filter(t => {
+      const tDate = String(t.date).substring(0, 10);
+      const tId   = String(t.employee_id || '').trim().toLowerCase();
+      const tName = String(t.employee_name || '').trim().toLowerCase();
+      if (tDate !== dateToLoad) return false;
+      // Match by id if both are valid
+      if (myId && myId !== 'undefined' && tId && tId !== 'undefined') return tId === myId;
+      // Fallback: match by name
+      return tName === myName && myName.length > 0;
+    });
+
     setTasks(dayTasks.length > 0
       ? dayTasks.map(t => ({
           id: String(t.id || uuidv4()),
@@ -160,7 +175,7 @@ export default function EmployeePage() {
         }))
       : [newTask()]
     );
-  }, []);
+  }, [user?.id, user?.name]);
 
   const loadData = useCallback(async () => {
     if (!user) { navigate('/login'); return; }
