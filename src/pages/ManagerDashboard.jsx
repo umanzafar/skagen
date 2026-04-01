@@ -221,6 +221,17 @@ export default function ManagerDashboard() {
     } catch { toast.error('Error!'); }
   };
 
+  // Manager sirf assigned tasks delete kar sakta hai
+  const deleteAssignedTask = async (taskId) => {
+    if (!window.confirm('Yeh assigned task delete karna chahte hain?')) return;
+    try {
+      await api.post({ action: 'deleteTask', task_id: taskId });
+      const updated = allTasksRef.current.filter(t => t.id !== taskId);
+      allTasksRef.current = updated; setAllTasks([...updated]);
+      toast.success('🗑️ Task delete ho gaya!');
+    } catch { toast.error('Delete nahi hua!'); }
+  };
+
   const addEmployee = async () => {
     if (!newEmp.name.trim()) { toast.error('Naam zaruri hai!'); return; }
     if (!newEmp.password.trim()) { toast.error('Password zaruri hai!'); return; }
@@ -242,7 +253,16 @@ export default function ManagerDashboard() {
     finally { setAddingEmp(false); }
   };
 
-  const deleteEmployee = async (id, name) => {
+  const deleteAssignedTask = async (taskId) => {
+    if (!window.confirm('Yeh assigned task delete karna chahte hain?')) return;
+    try {
+      await api.post({ action: 'deleteTask', task_id: taskId });
+      const updated = allTasksRef.current.filter(t => t.id !== taskId);
+      allTasksRef.current = updated;
+      setAllTasks([...updated]);
+      toast.success('Task delete ho gaya!');
+    } catch { toast.error('Delete nahi hua!'); }
+  };
     if (!window.confirm(`"${name}" delete karein?`)) return;
     try {
       await api.post({ action: 'deleteEmployee', employee_id: id });
@@ -462,7 +482,12 @@ export default function ManagerDashboard() {
                           <h4 style={{ fontWeight:'700',fontSize:'15px',color:'#0f172a' }}>{task.task_name}</h4>
                           {task.is_assigned && <span style={{ fontSize:'10px',background:'#EDE9FE',color:'#5B21B6',padding:'2px 8px',borderRadius:'8px',fontWeight:'700' }}>📌 Assigned</span>}
                         </div>
-                        <span style={{ padding:'4px 12px',borderRadius:'20px',fontSize:'12px',fontWeight:'700',background:sColor(task.status)+'20',color:sColor(task.status) }}>{task.status}</span>
+                        <div style={{ display:'flex',gap:'8px',alignItems:'center' }}>
+                          <span style={{ padding:'4px 12px',borderRadius:'20px',fontSize:'12px',fontWeight:'700',background:sColor(task.status)+'20',color:sColor(task.status) }}>{task.status}</span>
+                          {task.is_assigned && (
+                            <button onClick={() => deleteAssignedTask(task.id)} style={{ padding:'4px 10px',background:'#FEE2E2',color:'#DC2626',border:'none',borderRadius:'8px',cursor:'pointer',fontWeight:'700',fontSize:'12px' }}>🗑 Delete</button>
+                          )}
+                        </div>
                       </div>
                       <div style={{ display:'flex',gap:'16px',fontSize:'13px',color:'#64748b',marginBottom:'8px',flexWrap:'wrap' }}>
                         {task.start_time && <span>🕐 {task.start_time} → {task.end_time}</span>}
