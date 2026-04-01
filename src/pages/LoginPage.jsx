@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { api } from '../api';
@@ -13,7 +13,20 @@ export default function LoginPage() {
   const [fetching, setFetching] = useState(true);
   const navigate = useNavigate();
 
-  const loadEmployees = useCallback(async () => {
+useEffect(() => {
+  const user = JSON.parse(localStorage.getItem('user') || 'null');
+
+  if (user?.role === 'employee') {
+    navigate('/employee', { replace: true });
+  } else if (user?.role === 'manager') {
+    navigate('/manager', { replace: true });
+  }
+
+  // Call the loader function
+  loadEmployees();
+}, [navigate]);
+
+  const loadEmployees = async () => {
     try {
       const data = await api.get({ action: 'getEmployees' });
       if (Array.isArray(data) && data.length > 0) setEmployees(data);
@@ -22,17 +35,7 @@ export default function LoginPage() {
     } finally {
       setFetching(false);
     }
-  }, []);
-
-  useEffect(() => {
-    const user = JSON.parse(localStorage.getItem('user') || 'null');
-    if (user?.role === 'employee') {
-      navigate('/employee', { replace: true });
-    } else if (user?.role === 'manager') {
-      navigate('/manager', { replace: true });
-    }
-    loadEmployees();
-  }, [navigate, loadEmployees]);
+  };
 
   const handleLogin = async () => {
     if (!role) { toast.error("Role select karein!"); return; }
@@ -86,6 +89,7 @@ export default function LoginPage() {
       background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #4a90d9 100%)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
     }}>
+      {/* Background dots */}
       <div style={{ position: 'fixed', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
         {[...Array(6)].map((_, i) => (
           <div key={i} style={{
@@ -103,6 +107,7 @@ export default function LoginPage() {
         boxShadow: '0 25px 60px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.1)',
         position: 'relative', zIndex: 1
       }}>
+        {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
           <div style={{
             width: '72px', height: '72px', borderRadius: '20px',
@@ -119,6 +124,7 @@ export default function LoginPage() {
           </p>
         </div>
 
+        {/* Role Toggle */}
         <div style={{
           display: 'flex', background: '#f1f5f9', borderRadius: '12px',
           padding: '4px', marginBottom: '24px', gap: '4px'
@@ -135,6 +141,7 @@ export default function LoginPage() {
           ))}
         </div>
 
+        {/* Employee Dropdown */}
         {role === 'employee' && (
           <div style={{ marginBottom: '16px' }}>
             <label style={{ fontWeight: '600', display: 'block', marginBottom: '8px', fontSize: '13px', color: '#475569' }}>
@@ -161,6 +168,7 @@ export default function LoginPage() {
           </div>
         )}
 
+        {/* Password */}
         {role && (
           <>
             <div style={{ marginBottom: '20px' }}>
