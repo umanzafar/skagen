@@ -236,6 +236,49 @@ export default function EmployeePage() {
     }));
   };
 
+  // Save single task — no office time required
+  const handleSaveTask = async (taskId) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task || !task.task_name.trim()) { toast.error('Task naam zaruri hai!'); return; }
+    if (!task.start_time || !task.end_time) { toast.error('Start aur end time daalen!'); return; }
+    const empId = String(user.id), empName = String(user.name);
+    const toastId = toast.loading('Task save ho raha hai...');
+    try {
+      await api.post({
+        action: 'saveTask',
+        data: {
+          id: task.id,
+          daily_log_id: `${empId}_${selectedDate}`,
+          employee_id: empId,
+          employee_name: empName,
+          date: selectedDate,
+          task_name: String(task.task_name),
+          start_time: String(task.start_time),
+          end_time: String(task.end_time),
+          break_time: Number(task.break_time) || 0,
+          productive_hours: Number(task.productive_hours) || 0,
+          status: 'Briefed',
+          notes: String(task.notes || ''),
+          manager_note: '',
+          is_assigned: task.is_assigned ? 'true' : 'false'
+        }
+      });
+      // Update cache
+      const savedTask = { ...task, employee_id: empId, employee_name: empName, date: selectedDate, status: 'Briefed' };
+      const updatedTasks = [
+        ...allTasksRef.current.filter(t => t.id !== task.id),
+        savedTask
+      ];
+      allTasksRef.current = updatedTasks;
+      allTasksRef.current = updatedTasks;
+      writeCache('tasks', empId, updatedTasks);
+      setAllTasksData(updatedTasks);
+      toast.success('✅ Task save ho gaya!', { id: toastId });
+    } catch {
+      toast.error('Save nahi hua!', { id: toastId });
+    }
+  };
+
   const handlePhotoChange = async (e) => {
     const file = e.target.files[0]; if (!file) return;
     if (file.size > 1024 * 1024) { toast.error('Photo 1MB se choti honi chahiye!'); return; }
@@ -536,6 +579,16 @@ export default function EmployeePage() {
                       <div style={{ marginTop:'10px',padding:'8px 12px',background:'#FEF2F2',borderRadius:'8px',border:'1px solid #FECACA' }}>
                         <p style={{ fontSize:'11px',color:'#EF4444',fontWeight:'700' }}>💬 Manager: {task.manager_note}</p>
                       </div>
+                    )}
+
+                    {/* Save individual task button — only for unlocked tasks on today */}
+                    {!locked && selectedDate === today && (
+                      <button
+                        onClick={() => handleSaveTask(task.id)}
+                        style={{ marginTop:'12px',width:'100%',padding:'9px',background:'linear-gradient(135deg,#0369a1,#0284c7)',color:'white',border:'none',borderRadius:'10px',fontWeight:'700',fontSize:'13px',cursor:'pointer',boxShadow:'0 2px 8px rgba(3,105,161,0.3)' }}
+                      >
+                        💾 Task Save Karo
+                      </button>
                     )}
                   </div>
                 );
