@@ -111,7 +111,13 @@ const newTask = () => ({
 // ─── component ────────────────────────────────────────────────────────────────
 export default function EmployeePage() {
   const navigate  = useNavigate();
-  const user      = JSON.parse(localStorage.getItem('user') || 'null');
+  const rawUser   = JSON.parse(localStorage.getItem('user') || 'null');
+  // Ensure id and name are clean — never "undefined" string
+  const user      = rawUser ? {
+    ...rawUser,
+    id:   String(rawUser.id   || '').trim(),
+    name: String(rawUser.name || '').trim(),
+  } : null;
   const today     = todayLocal();
 
   const [clock, setClock]               = useState('');
@@ -200,21 +206,42 @@ export default function EmployeePage() {
     }
     try {
       const [logsData, tasksData] = await Promise.all([api.get({ action: 'getDailyLogs' }), api.get({ action: 'getTasks' })]);
-      const norm = (v) => String(v || '').trim().toLowerCase();
+
+      const myId   = String(user.id || '').trim().toLowerCase();
+      const myName = String(user.name || '').trim().toLowerCase();
+
+      // Strict match: id match karo, agar id undefined/empty ho tab name se
+      const matchesMe = (row) => {
+        const rId   = String(row.employee_id || '').trim().toLowerCase();
+        const rName = String(row.employee_name || '').trim().toLowerCase();
+        // If both have valid IDs, must match by ID only
+        if (myId && myId !== 'undefined' && rId && rId !== 'undefined') {
+          return rId === myId;
+        }
+        // Fallback: exact name match only
+        return rName === myName && myName.length > 0;
+      };
+
       const myLogs = Array.isArray(logsData)
-        ? logsData.filter(l => norm(l.employee_id) === norm(user.id) || norm(l.employee_name) === norm(user.name))
+        ? logsData
+            .filter(matchesMe)
             .map(l => ({ ...l, date: String(l.date || '').substring(0, 10), office_in: safeTime(l.office_in), office_out: safeTime(l.office_out) }))
         : cl;
+
       const myTasks = Array.isArray(tasksData)
-        ? tasksData.filter(t => norm(t.employee_id) === norm(user.id) || norm(t.employee_name) === norm(user.name))
+        ? tasksData
+            .filter(matchesMe)
             .map(t => ({ ...t, date: String(t.date || '').substring(0, 10), start_time: safeTime(t.start_time), end_time: safeTime(t.end_time) }))
         : ct;
-      const mLogs  = [...myLogs, ...cl.filter(c => !myLogs.some(l => l.date === c.date))];
-      const mTasks = [...myTasks, ...ct.filter(c => !myTasks.some(t => t.id === c.id))];
-      writeCache('logs', user.id, mLogs); writeCache('tasks', user.id, mTasks);
-      allLogsRef.current = mLogs; allTasksRef.current = mTasks;
-      setAllLogs(mLogs); setAllTasksData(mTasks);
-      applyDateData(today, mLogs, mTasks);
+
+      // Only use API data — don't merge with cache to avoid stale/wrong data
+      writeCache('logs', user.id, myLogs);
+      writeCache('tasks', user.id, myTasks);
+      allLogsRef.current = myLogs;
+      allTasksRef.current = myTasks;
+      setAllLogs(myLogs);
+      setAllTasksData(myTasks);
+      applyDateData(today, myLogs, myTasks);
     } catch { if (!cl.length) toast.error('Data load nahi hua!'); }
     finally { setLoading(false); }
   }, []); // eslint-disable-line
