@@ -253,16 +253,7 @@ export default function ManagerDashboard() {
     finally { setAddingEmp(false); }
   };
 
-  const deleteAssignedTask = async (taskId) => {
-    if (!window.confirm('Yeh assigned task delete karna chahte hain?')) return;
-    try {
-      await api.post({ action: 'deleteTask', task_id: taskId });
-      const updated = allTasksRef.current.filter(t => t.id !== taskId);
-      allTasksRef.current = updated;
-      setAllTasks([...updated]);
-      toast.success('Task delete ho gaya!');
-    } catch { toast.error('Delete nahi hua!'); }
-  };
+  const deleteEmployee = async (id, name) => {
     if (!window.confirm(`"${name}" delete karein?`)) return;
     try {
       await api.post({ action: 'deleteEmployee', employee_id: id });
