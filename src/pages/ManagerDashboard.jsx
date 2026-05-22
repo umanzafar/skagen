@@ -49,42 +49,28 @@ const fmtDate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { d
 const fmtMonth = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 
 // ── formatTime: Google Sheets / Excel time value → "HH:MM" ───────────────
-// Sheets returns time as:
-//   "1899-12-30T09:00:00.000Z"  ISO with 1899 epoch date
-//   0.375                        Excel serial fraction (0 = midnight/empty)
-//   "09:00" / "09:00:00"         plain string
-//   0 or ""                      empty cell → return ''
 function formatTime(val) {
-  // Strict empty check — 0 means empty cell in Sheets, not midnight
   if (val === null || val === undefined || val === '' || val === 0 || val === '0') return '';
-
   const s = String(val).trim();
   if (!s || s === '0') return '';
-
-  // Already HH:MM — but reject "00:00" (empty cell stored as midnight)
   if (/^\d{1,2}:\d{2}$/.test(s)) {
     return s === '00:00' ? '' : s;
   }
-  // HH:MM:SS
   if (/^\d{1,2}:\d{2}:\d{2}$/.test(s)) {
     const t = s.substring(0, 5);
     return t === '00:00' ? '' : t;
   }
-  // ISO datetime string (handles 1899-12-30T09:00:00.000Z from Sheets)
   if (s.includes('T') || (s.includes('-') && s.length > 7)) {
     const d = new Date(s);
     if (!isNaN(d)) {
       const h = d.getUTCHours(), m = d.getUTCMinutes();
-      // 1899-12-30T00:00:00Z = empty cell in Sheets
       if (h === 0 && m === 0) return '';
       return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
     }
   }
-  // Excel numeric time fraction (0.0 – 0.9999)
-  // 0 = midnight = empty cell; skip it
   const n = parseFloat(s);
   if (!isNaN(n)) {
-    if (n <= 0 || n >= 1) return ''; // 0 = empty, >=1 = date serial not time
+    if (n <= 0 || n >= 1) return '';
     const totalMin = Math.round(n * 24 * 60);
     const h = Math.floor(totalMin / 60), m = totalMin % 60;
     if (h === 0 && m === 0) return '';
@@ -119,7 +105,7 @@ export default function ManagerDashboard() {
   const [newEmp, setNewEmp] = useState({ name: '', designation: '', password: '', color: '#3B82F6' });
   const [addingEmp, setAddingEmp] = useState(false);
 
-  // Assign task modal — NO start/end/break fields
+  // Assign task modal
   const [assignModal, setAssignModal] = useState(false);
   const [assignTarget, setAssignTarget] = useState(null);
   const [assignForm, setAssignForm] = useState({ task_name: '', date: todayStr(), notes: '' });
@@ -128,6 +114,10 @@ export default function ManagerDashboard() {
   // Password
   const [managerPass, setManagerPass] = useState({ old: '', new1: '', new2: '' });
   const [changingPass, setChangingPass] = useState(false);
+
+  // FIX 2 — Date click detail panel state
+  const [clickedDate, setClickedDate] = useState(null);
+  const [clickedEmpName, setClickedEmpName] = useState(null);
 
   // ── Load data ───────────────────────────────────────────────────────────
   const loadData = useCallback(async (silent = false) => {
@@ -221,7 +211,6 @@ export default function ManagerDashboard() {
     } catch { toast.error('Error!'); }
   };
 
-  // Manager sirf assigned tasks delete kar sakta hai
   const deleteAssignedTask = async (taskId) => {
     if (!window.confirm('Yeh assigned task delete karna chahte hain?')) return;
     try {
@@ -262,7 +251,6 @@ export default function ManagerDashboard() {
     } catch { toast.error('Delete nahi hua!'); }
   };
 
-  // Assign task — only task_name, date, notes
   const openAssign = (emp) => {
     setAssignTarget(emp);
     setAssignForm({ task_name: '', date: todayStr(), notes: '' });
@@ -516,7 +504,10 @@ export default function ManagerDashboard() {
                   {employees.map((emp, i) => {
                     const log = getLog(emp), empTasks = getEmpTasks(emp);
                     return (
-                      <tr key={emp.id} onClick={() => setSelectedEmp(selectedEmp===emp.name?null:emp.name)}
+                      <tr key={emp.id}
+                        onClick={() => { setClickedEmpName(emp.name); setClickedDate(selectedDate); }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#EFF6FF'}
+                        onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? 'white' : '#fafafa'}
                         style={{ borderBottom:'1px solid #f1f5f9',background:i%2===0?'white':'#fafafa',cursor:'pointer' }}>
                         <td style={{ padding:'14px 16px',fontWeight:'700',fontSize:'14px' }}>
                           <div style={{ display:'flex',alignItems:'center',gap:'8px' }}>
@@ -540,6 +531,59 @@ export default function ManagerDashboard() {
                 </tbody>
               </table>
             </div>
+
+            {/* FIX 2 — Date Click Detail Panel */}
+            {clickedDate && clickedEmpName && (
+              <div style={{ background:'white',borderRadius:'18px',padding:'22px',marginBottom:'24px',boxShadow:'0 4px 20px rgba(0,0,0,0.1)',border:'2px solid #4a90d9' }}>
+                <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px' }}>
+                  <div>
+                    <h3 style={{ fontSize:'17px',fontWeight:'800',color:'#0f172a' }}>
+                      📋 {clickedEmpName} — {(() => { const d = new Date(clickedDate + 'T00:00:00'); return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }); })()}
+                    </h3>
+                    {(() => {
+                      const log = allLogs.find(l => l.date === clickedDate && norm(l.employee_name) === norm(clickedEmpName));
+                      return log ? (
+                        <div style={{ display:'flex',gap:'12px',marginTop:'6px',flexWrap:'wrap' }}>
+                          <span style={{ fontSize:'13px',color:'#64748b' }}>🕐 In: <b style={{ color:'#1e3a5f' }}>{log.office_in || '--'}</b></span>
+                          <span style={{ fontSize:'13px',color:'#64748b' }}>🕐 Out: <b style={{ color:'#1e3a5f' }}>{log.office_out || '--'}</b></span>
+                          <span style={{ fontSize:'13px',color:'#10B981',fontWeight:'800' }}>⚡ {log.total_productive_hours || 0} hrs total</span>
+                        </div>
+                      ) : <p style={{ fontSize:'12px',color:'#94a3b8',marginTop:'4px' }}>No attendance record</p>;
+                    })()}
+                  </div>
+                  <button onClick={() => { setClickedDate(null); setClickedEmpName(null); }}
+                    style={{ padding:'6px 14px',background:'#f1f5f9',border:'none',borderRadius:'8px',cursor:'pointer',fontWeight:'600',color:'#64748b',fontSize:'13px' }}>✕ Close</button>
+                </div>
+
+                {(() => {
+                  const panelTasks = allTasks.filter(t =>
+                    t.date === clickedDate &&
+                    norm(t.employee_name) === norm(clickedEmpName) &&
+                    !t.is_assigned
+                  );
+                  return panelTasks.length === 0 ? (
+                    <div style={{ textAlign:'center',padding:'30px',color:'#94a3b8' }}>
+                      <div style={{ fontSize:'36px',marginBottom:'8px' }}>📭</div>
+                      <p>Koi tasks nahi hain is date ke liye</p>
+                    </div>
+                  ) : panelTasks.map(task => (
+                    <div key={task.id} style={{ border:`2px solid ${sColor(task.status)}30`,borderLeft:`4px solid ${sColor(task.status)}`,borderRadius:'10px',padding:'14px',marginBottom:'10px',background:'#fafafa' }}>
+                      <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px' }}>
+                        <h4 style={{ fontWeight:'700',fontSize:'14px',color:'#0f172a' }}>{task.task_name}</h4>
+                        <span style={{ padding:'3px 10px',borderRadius:'10px',fontSize:'11px',fontWeight:'700',background:sColor(task.status)+'20',color:sColor(task.status) }}>{task.status}</span>
+                      </div>
+                      <div style={{ display:'flex',gap:'16px',fontSize:'12px',color:'#64748b',flexWrap:'wrap' }}>
+                        {task.start_time && <span>🕐 {task.start_time} → {task.end_time}</span>}
+                        {task.break_time > 0 && <span>☕ Break: {task.break_time} mins</span>}
+                        {task.productive_hours > 0 && <span style={{ color:'#10B981',fontWeight:'700' }}>⚡ {task.productive_hours} hrs</span>}
+                      </div>
+                      {task.notes && <p style={{ fontSize:'12px',color:'#475569',background:'white',padding:'6px 10px',borderRadius:'7px',marginTop:'8px',border:'1px solid #e2e8f0' }}>📝 {task.notes}</p>}
+                      {task.manager_note && <p style={{ fontSize:'12px',color:'#EF4444',marginTop:'6px' }}>💬 {task.manager_note}</p>}
+                    </div>
+                  ));
+                })()}
+              </div>
+            )}
 
             {/* Bar chart */}
             <div style={{ background:'white',borderRadius:'18px',padding:'24px',boxShadow:'0 2px 10px rgba(0,0,0,0.06)' }}>
@@ -649,43 +693,74 @@ export default function ManagerDashboard() {
                 </div>
               </div>
 
-              {/* Employee summary cards */}
+              {/* FIX 1 — Employee summary cards with Office In/Out */}
               <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:'16px',marginBottom:'24px' }}>
-                {empSummary.map(({ emp, totalHrs, daysWorked, approved, submitted, rejected, totalTasks, avgHrs }) => (
-                  <div key={emp.id} style={{ background:'white',borderRadius:'18px',padding:'20px',boxShadow:'0 2px 10px rgba(0,0,0,0.06)',borderTop:`4px solid ${emp.color||'#3B82F6'}` }}>
-                    <div style={{ display:'flex',alignItems:'center',gap:'12px',marginBottom:'16px' }}>
-                      <div style={{ width:'44px',height:'44px',borderRadius:'50%',background:emp.color||'#3B82F6',display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:'800',fontSize:'18px',flexShrink:0,overflow:'hidden' }}>
-                        {emp.photo_url ? <img src={emp.photo_url} alt="" style={{ width:'100%',height:'100%',objectFit:'cover' }}/> : emp.name?.[0]}
+                {empSummary.map(({ emp, totalHrs, daysWorked, approved, submitted, rejected, totalTasks, avgHrs, empLogs }) => {
+                  // For daily view show today's in/out; for weekly/monthly show last known
+                  const todayLog = empLogs.find(l => l.date === analyticsRef) || empLogs[empLogs.length - 1];
+                  return (
+                    <div key={emp.id} style={{ background:'white',borderRadius:'18px',padding:'20px',boxShadow:'0 2px 10px rgba(0,0,0,0.06)',borderTop:`4px solid ${emp.color||'#3B82F6'}` }}>
+                      <div style={{ display:'flex',alignItems:'center',gap:'12px',marginBottom:'16px' }}>
+                        <div style={{ width:'44px',height:'44px',borderRadius:'50%',background:emp.color||'#3B82F6',display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:'800',fontSize:'18px',flexShrink:0,overflow:'hidden' }}>
+                          {emp.photo_url ? <img src={emp.photo_url} alt="" style={{ width:'100%',height:'100%',objectFit:'cover' }}/> : emp.name?.[0]}
+                        </div>
+                        <div>
+                          <p style={{ fontWeight:'800',fontSize:'15px',color:'#0f172a' }}>{emp.name}</p>
+                          <p style={{ fontSize:'11px',color:'#94a3b8' }}>{emp.designation}</p>
+                        </div>
+                      </div>
+
+                      {/* FIX 1 — Office In/Out row */}
+                      {todayLog && (
+                        <div style={{ display:'flex',gap:'8px',marginBottom:'14px',flexWrap:'wrap' }}>
+                          <div style={{ display:'flex',alignItems:'center',gap:'5px',background:'#f8fafc',padding:'5px 10px',borderRadius:'8px',border:'1px solid #e2e8f0' }}>
+                            <span style={{ fontSize:'11px',color:'#64748b',fontWeight:'600' }}>🕐 In:</span>
+                            <span style={{ fontSize:'12px',fontWeight:'800',color:todayLog.office_in?'#1e3a5f':'#cbd5e1' }}>{todayLog.office_in || '--'}</span>
+                          </div>
+                          <div style={{ display:'flex',alignItems:'center',gap:'5px',background:'#f8fafc',padding:'5px 10px',borderRadius:'8px',border:'1px solid #e2e8f0' }}>
+                            <span style={{ fontSize:'11px',color:'#64748b',fontWeight:'600' }}>🕐 Out:</span>
+                            <span style={{ fontSize:'12px',fontWeight:'800',color:todayLog.office_out?'#1e3a5f':'#cbd5e1' }}>{todayLog.office_out || '--'}</span>
+                          </div>
+                          {todayLog.office_in && todayLog.office_out && (
+                            <div style={{ display:'flex',alignItems:'center',gap:'5px',background:'#f0f9ff',padding:'5px 10px',borderRadius:'8px',border:'1px solid #bae6fd' }}>
+                              <span style={{ fontSize:'11px',color:'#0369a1',fontWeight:'600' }}>📍</span>
+                              <span style={{ fontSize:'12px',fontWeight:'800',color:'#0369a1' }}>
+                                {(() => {
+                                  const s = new Date(`2000/01/01 ${todayLog.office_in}`);
+                                  const e = new Date(`2000/01/01 ${todayLog.office_out}`);
+                                  return `${Math.max(0, (e - s) / 3600000).toFixed(1)}h`;
+                                })()}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px' }}>
+                        {[['⚡ Total Hrs',`${totalHrs} hrs`,emp.color||'#3B82F6'],['📅 Days',daysWorked,'#4a90d9'],['📊 Avg/Day',`${avgHrs} hrs`,'#8B5CF6'],['📋 Tasks',totalTasks,'#6B7280']].map(([l, v, c]) => (
+                          <div key={l} style={{ background:'#f8fafc',borderRadius:'10px',padding:'10px',textAlign:'center' }}>
+                            <p style={{ fontSize:'10px',color:'#94a3b8',fontWeight:'600',marginBottom:'4px' }}>{l}</p>
+                            <p style={{ fontSize:'18px',fontWeight:'900',color:c }}>{v}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'12px' }}>
+                        {[['✅',approved,'#10B981','#D1FAE5'],['⏳',submitted,'#F59E0B','#FEF3C7'],['❌',rejected,'#EF4444','#FEE2E2']].map(([icon, count, color, bg]) => (
+                          <span key={icon} style={{ padding:'3px 10px',borderRadius:'20px',fontSize:'11px',fontWeight:'700',background:bg,color }}>{icon} {count}</span>
+                        ))}
                       </div>
                       <div>
-                        <p style={{ fontWeight:'800',fontSize:'15px',color:'#0f172a' }}>{emp.name}</p>
-                        <p style={{ fontSize:'11px',color:'#94a3b8' }}>{emp.designation}</p>
-                      </div>
-                    </div>
-                    <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px' }}>
-                      {[['⚡ Total Hrs',`${totalHrs} hrs`,emp.color||'#3B82F6'],['📅 Days',daysWorked,'#4a90d9'],['📊 Avg/Day',`${avgHrs} hrs`,'#8B5CF6'],['📋 Tasks',totalTasks,'#6B7280']].map(([l, v, c]) => (
-                        <div key={l} style={{ background:'#f8fafc',borderRadius:'10px',padding:'10px',textAlign:'center' }}>
-                          <p style={{ fontSize:'10px',color:'#94a3b8',fontWeight:'600',marginBottom:'4px' }}>{l}</p>
-                          <p style={{ fontSize:'18px',fontWeight:'900',color:c }}>{v}</p>
+                        <div style={{ display:'flex',justifyContent:'space-between',marginBottom:'4px' }}>
+                          <span style={{ fontSize:'10px',color:'#94a3b8',fontWeight:'600' }}>Avg vs 8h target</span>
+                          <span style={{ fontSize:'10px',color:emp.color||'#3B82F6',fontWeight:'700' }}>{Math.min(100, avgHrs/8*100).toFixed(0)}%</span>
                         </div>
-                      ))}
-                    </div>
-                    <div style={{ display:'flex',gap:'6px',flexWrap:'wrap',marginBottom:'12px' }}>
-                      {[['✅',approved,'#10B981','#D1FAE5'],['⏳',submitted,'#F59E0B','#FEF3C7'],['❌',rejected,'#EF4444','#FEE2E2']].map(([icon, count, color, bg]) => (
-                        <span key={icon} style={{ padding:'3px 10px',borderRadius:'20px',fontSize:'11px',fontWeight:'700',background:bg,color }}>{icon} {count}</span>
-                      ))}
-                    </div>
-                    <div>
-                      <div style={{ display:'flex',justifyContent:'space-between',marginBottom:'4px' }}>
-                        <span style={{ fontSize:'10px',color:'#94a3b8',fontWeight:'600' }}>Avg vs 8h target</span>
-                        <span style={{ fontSize:'10px',color:emp.color||'#3B82F6',fontWeight:'700' }}>{Math.min(100, avgHrs/8*100).toFixed(0)}%</span>
-                      </div>
-                      <div style={{ height:'6px',background:'#f1f5f9',borderRadius:'3px',overflow:'hidden' }}>
-                        <div style={{ height:'100%',width:`${Math.min(100,avgHrs/8*100)}%`,background:emp.color||'#3B82F6',borderRadius:'3px',transition:'width 0.5s ease' }}/>
+                        <div style={{ height:'6px',background:'#f1f5f9',borderRadius:'3px',overflow:'hidden' }}>
+                          <div style={{ height:'100%',width:`${Math.min(100,avgHrs/8*100)}%`,background:emp.color||'#3B82F6',borderRadius:'3px',transition:'width 0.5s ease' }}/>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Trend chart */}
@@ -806,13 +881,11 @@ export default function ManagerDashboard() {
         )}
       </div>
 
-      {/* ══════════════════ ASSIGN MODAL — no time fields ══════════════════ */}
+      {/* ══════════════════ ASSIGN MODAL ══════════════════ */}
       {assignModal && assignTarget && (
         <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',zIndex:999,display:'flex',alignItems:'center',justifyContent:'center',padding:'20px' }}
           onClick={e => { if (e.target === e.currentTarget) setAssignModal(false); }}>
           <div style={{ background:'white',borderRadius:'20px',padding:'28px',width:'100%',maxWidth:'440px',boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
-
-            {/* Header */}
             <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'22px' }}>
               <div>
                 <h3 style={{ fontWeight:'800',fontSize:'18px',color:'#0f172a' }}>📌 Task Assign</h3>
@@ -828,7 +901,6 @@ export default function ManagerDashboard() {
                 style={{ background:'#f1f5f9',border:'none',borderRadius:'8px',padding:'8px 12px',cursor:'pointer',fontWeight:'700',color:'#64748b',fontSize:'16px' }}>✕</button>
             </div>
 
-            {/* Task name */}
             <div style={{ marginBottom:'14px' }}>
               <label style={{ fontSize:'12px',fontWeight:'700',color:'#475569',display:'block',marginBottom:'6px' }}>✅ Task Name *</label>
               <input type="text" placeholder="Task naam..." value={assignForm.task_name}
@@ -836,7 +908,6 @@ export default function ManagerDashboard() {
                 style={{ width:'100%',padding:'11px 14px',borderRadius:'10px',border:'2px solid #e2e8f0',fontSize:'14px',outline:'none',boxSizing:'border-box',fontWeight:'600' }}/>
             </div>
 
-            {/* Date */}
             <div style={{ marginBottom:'14px' }}>
               <label style={{ fontSize:'12px',fontWeight:'700',color:'#475569',display:'block',marginBottom:'6px' }}>📅 Date *</label>
               <input type="date" value={assignForm.date}
@@ -844,7 +915,6 @@ export default function ManagerDashboard() {
                 style={{ width:'100%',padding:'11px 14px',borderRadius:'10px',border:'2px solid #e2e8f0',fontSize:'14px',outline:'none',boxSizing:'border-box' }}/>
             </div>
 
-            {/* Notes only — NO start/end/break */}
             <div style={{ marginBottom:'22px' }}>
               <label style={{ fontSize:'12px',fontWeight:'700',color:'#475569',display:'block',marginBottom:'6px' }}>📝 Notes / Instructions</label>
               <textarea placeholder="Task ki details ya instructions..." value={assignForm.notes}
@@ -853,7 +923,6 @@ export default function ManagerDashboard() {
                 style={{ width:'100%',padding:'10px 14px',borderRadius:'10px',border:'2px solid #e2e8f0',fontSize:'13px',outline:'none',resize:'vertical',fontFamily:'inherit',boxSizing:'border-box',color:'#475569' }}/>
             </div>
 
-            {/* Buttons */}
             <div style={{ display:'flex',gap:'10px' }}>
               <button onClick={() => setAssignModal(false)}
                 style={{ flex:1,padding:'12px',background:'#f1f5f9',border:'none',borderRadius:'10px',cursor:'pointer',fontWeight:'700',color:'#64748b',fontSize:'14px' }}>
