@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { api } from '../api';
+import { getDailyLogs, getTasks, saveTask as apiSaveTask, submitDay as apiSubmitDay, uploadPhoto } from '../api';
 import { v4 as uuidv4 } from 'uuid';
+import { BRAND, brandGradient, brandButtonGradient } from '../theme';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 const STATUS_COLORS = {
@@ -205,7 +206,7 @@ export default function EmployeePage() {
       setLoading(false);
     }
     try {
-      const [logsData, tasksData] = await Promise.all([api.get({ action: 'getDailyLogs' }), api.get({ action: 'getTasks' })]);
+      const [logsData, tasksData] = await Promise.all([getDailyLogs(), getTasks()]);
 
       const myId   = String(user.id || '').trim().toLowerCase();
       const myName = String(user.name || '').trim().toLowerCase();
@@ -271,24 +272,21 @@ export default function EmployeePage() {
     const empId = String(user.id), empName = String(user.name);
     const toastId = toast.loading('Task save ho raha hai...');
     try {
-      await api.post({
-        action: 'saveTask',
-        data: {
-          id: task.id,
-          daily_log_id: `${empId}_${selectedDate}`,
-          employee_id: empId,
-          employee_name: empName,
-          date: selectedDate,
-          task_name: String(task.task_name),
-          start_time: String(task.start_time),
-          end_time: String(task.end_time),
-          break_time: Number(task.break_time) || 0,
-          productive_hours: Number(task.productive_hours) || 0,
-          status: 'Briefed',
-          notes: String(task.notes || ''),
-          manager_note: '',
-          is_assigned: task.is_assigned ? 'true' : 'false'
-        }
+      await apiSaveTask({
+        id: task.id,
+        daily_log_id: `${empId}_${selectedDate}`,
+        employee_id: empId,
+        employee_name: empName,
+        date: selectedDate,
+        task_name: String(task.task_name),
+        start_time: String(task.start_time),
+        end_time: String(task.end_time),
+        break_time: Number(task.break_time) || 0,
+        productive_hours: Number(task.productive_hours) || 0,
+        status: 'Briefed',
+        notes: String(task.notes || ''),
+        manager_note: '',
+        is_assigned: task.is_assigned ? 'true' : 'false'
       });
       // Update cache
       const savedTask = { ...task, employee_id: empId, employee_name: empName, date: selectedDate, status: 'Briefed' };
@@ -301,8 +299,9 @@ export default function EmployeePage() {
       writeCache('tasks', empId, updatedTasks);
       setAllTasksData(updatedTasks);
       toast.success('✅ Task save ho gaya!', { id: toastId });
-    } catch {
-      toast.error('Save nahi hua!', { id: toastId });
+    } catch (err) {
+      console.error('handleSaveTask error:', err);
+      toast.error(`Save nahi hua! ${err?.message || ''}`, { id: toastId });
     }
   };
 
@@ -310,14 +309,14 @@ export default function EmployeePage() {
     const file = e.target.files[0]; if (!file) return;
     if (file.size > 1024 * 1024) { toast.error('Photo 1MB se choti honi chahiye!'); return; }
     const toastId = toast.loading('Photo upload...');
-    const reader = new FileReader();
-    reader.onload = async () => {
-      setPhoto(reader.result);
-      await api.post({ action: 'uploadPhoto', employee_id: user.id, photo_base64: reader.result });
-      localStorage.setItem('user', JSON.stringify({ ...user, photo: reader.result }));
+    try {
+      const { photo_url } = await uploadPhoto(user.id, file);
+      setPhoto(photo_url);
+      localStorage.setItem('user', JSON.stringify({ ...user, photo: photo_url }));
       toast.success('Photo update ho gayi! ✅', { id: toastId });
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      toast.error(err.message || 'Photo upload nahi hui!', { id: toastId });
+    }
   };
 
   // FIX 3: handleSubmit — office in/out + NEW tasks submit
@@ -336,22 +335,19 @@ export default function EmployeePage() {
       const empId = String(user.id), empName = String(user.name);
       const total = parseFloat(allNamedTasks.reduce((s, t) => s + Number(t.productive_hours), 0).toFixed(2));
       // Submit day log
-      await api.post({
-        action: 'submitDay', employee_id: empId, date: selectedDate,
-        data: { id: `${empId}_${selectedDate}`, employee_id: empId, employee_name: empName, date: selectedDate, office_in: officeIn, office_out: officeOut, total_productive_hours: total, submitted: true }
+      await apiSubmitDay({
+        id: `${empId}_${selectedDate}`, employee_id: empId, employee_name: empName, date: selectedDate,
+        office_in: officeIn, office_out: officeOut, total_productive_hours: total, submitted: true
       });
       // Save only unlocked (new) tasks — already-submitted ones stay as-is
       for (const task of unlockedTasks) {
-        await api.post({
-          action: 'saveTask',
-          data: {
-            id: task.id, daily_log_id: `${empId}_${selectedDate}`, employee_id: empId,
-            employee_name: empName, date: selectedDate, task_name: String(task.task_name),
-            start_time: String(task.start_time), end_time: String(task.end_time),
-            break_time: Number(task.break_time) || 0, productive_hours: Number(task.productive_hours) || 0,
-            status: 'Submitted', notes: String(task.notes || ''), manager_note: '',
-            is_assigned: task.is_assigned ? 'true' : 'false'
-          }
+        await apiSaveTask({
+          id: task.id, daily_log_id: `${empId}_${selectedDate}`, employee_id: empId,
+          employee_name: empName, date: selectedDate, task_name: String(task.task_name),
+          start_time: String(task.start_time), end_time: String(task.end_time),
+          break_time: Number(task.break_time) || 0, productive_hours: Number(task.productive_hours) || 0,
+          status: 'Submitted', notes: String(task.notes || ''), manager_note: '',
+          is_assigned: task.is_assigned ? 'true' : 'false'
         });
       }
       // Update cache
@@ -366,7 +362,10 @@ export default function EmployeePage() {
       setAllLogs(updatedLogs); setAllTasksData(mergedTasks);
       setSubmitted(true); setTasks(updatedTasks);
       toast.success('🎉 Kaam submit ho gaya!');
-    } catch { toast.error('Submit nahi hua! Dobara try karein.'); }
+    } catch (err) {
+      console.error('handleSubmit error:', err);
+      toast.error(`Submit nahi hua! ${err?.message || 'Dobara try karein.'}`);
+    }
     finally { setSaving(false); }
   };
 
@@ -389,7 +388,7 @@ export default function EmployeePage() {
 
   if (loading) return (
     <div style={{ display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',flexDirection:'column',gap:'16px',background:'#f1f5f9' }}>
-      <div style={{ width:'44px',height:'44px',border:'4px solid #e2e8f0',borderTop:'4px solid #4a90d9',borderRadius:'50%',animation:'spin 1s linear infinite' }}/>
+      <div style={{ width:'44px',height:'44px',border:'4px solid #e2e8f0',borderTop:`4px solid ${BRAND.navyLight}`,borderRadius:'50%',animation:'spin 1s linear infinite' }}/>
       <p style={{ color:'#64748b' }}>Loading...</p>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
@@ -399,7 +398,7 @@ export default function EmployeePage() {
     <div style={{ minHeight:'100vh',background:'#f1f5f9' }}>
 
       {/* ══ HEADER ══ */}
-      <div style={{ background:'linear-gradient(135deg,#0f172a,#1e3a5f)',position:'sticky',top:0,zIndex:100,boxShadow:'0 4px 20px rgba(0,0,0,0.3)' }}>
+      <div style={{ background:brandGradient,position:'sticky',top:0,zIndex:100,boxShadow:'0 4px 20px rgba(0,0,0,0.3)' }}>
         <div style={{ maxWidth:'860px',margin:'0 auto',padding:'0 20px' }}>
 
           {/* FIX 4: Urdu ayat at the TOP of header */}
@@ -416,7 +415,7 @@ export default function EmployeePage() {
                 <div style={{ width:'46px',height:'46px',borderRadius:'50%',background:user?.color||'#3B82F6',overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'18px',fontWeight:'800',border:'3px solid rgba(255,255,255,0.25)' }}>
                   {photo ? <img src={photo} alt="" style={{ width:'100%',height:'100%',objectFit:'cover' }}/> : user?.name?.[0]}
                 </div>
-                <div style={{ position:'absolute',bottom:'-2px',right:'-2px',background:'#4a90d9',borderRadius:'50%',width:'16px',height:'16px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'8px',border:'2px solid #0f172a' }}>📷</div>
+                <div style={{ position:'absolute',bottom:'-2px',right:'-2px',background:BRAND.yellow,borderRadius:'50%',width:'16px',height:'16px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'8px',border:`2px solid ${BRAND.black}` }}>📷</div>
                 <input type="file" accept="image/*" onChange={handlePhotoChange} style={{ display:'none' }}/>
               </label>
               <div>
@@ -425,7 +424,7 @@ export default function EmployeePage() {
               </div>
             </div>
             <div style={{ textAlign:'right' }}>
-              <div style={{ color:'#4a90d9',fontSize:'17px',fontWeight:'900',fontFamily:'monospace' }}>{clock}</div>
+              <div style={{ color:BRAND.yellow,fontSize:'17px',fontWeight:'900',fontFamily:'monospace' }}>{clock}</div>
               <button onClick={logout} style={{ marginTop:'4px',padding:'3px 10px',background:'rgba(255,255,255,0.08)',color:'#94a3b8',border:'1px solid rgba(255,255,255,0.1)',borderRadius:'6px',cursor:'pointer',fontSize:'11px' }}>Logout</button>
             </div>
           </div>
@@ -433,7 +432,7 @@ export default function EmployeePage() {
           {/* Tabs */}
           <div style={{ display:'flex',gap:'4px',alignItems:'center',paddingBottom:'10px' }}>
             {[['today','📋 Today Work'],['summary','📊 Summary']].map(([t, label]) => (
-              <button key={t} onClick={() => setActiveTab(t)} style={{ padding:'7px 16px',border:'none',cursor:'pointer',fontSize:'12px',fontWeight:'700',background:activeTab===t?'rgba(255,255,255,0.15)':'transparent',color:activeTab===t?'white':'#64748b',borderRadius:'8px',borderBottom:activeTab===t?'2px solid #4a90d9':'2px solid transparent' }}>{label}</button>
+              <button key={t} onClick={() => setActiveTab(t)} style={{ padding:'7px 16px',border:'none',cursor:'pointer',fontSize:'12px',fontWeight:'700',background:activeTab===t?'rgba(255,255,255,0.15)':'transparent',color:activeTab===t?'white':'#64748b',borderRadius:'8px',borderBottom:activeTab===t?`2px solid ${BRAND.yellow}`:'2px solid transparent' }}>{label}</button>
             ))}
             {/* FIX 3: show lock only for office time, not whole page */}
             {submitted && activeTab==='today' && (
@@ -548,7 +547,7 @@ export default function EmployeePage() {
                     {/* Task header */}
                     <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px',flexWrap:'wrap',gap:'6px' }}>
                       <div style={{ display:'flex',alignItems:'center',gap:'6px' }}>
-                        <div style={{ width:'24px',height:'24px',borderRadius:'50%',background:'linear-gradient(135deg,#1e3a5f,#4a90d9)',display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:'900',fontSize:'11px',flexShrink:0 }}>{idx + 1}</div>
+                        <div style={{ width:'24px',height:'24px',borderRadius:'50%',background:brandButtonGradient,display:'flex',alignItems:'center',justifyContent:'center',color:'white',fontWeight:'900',fontSize:'11px',flexShrink:0 }}>{idx + 1}</div>
                         {isAssigned && <span style={{ background:'#EDE9FE',color:'#5B21B6',fontSize:'10px',fontWeight:'700',padding:'2px 7px',borderRadius:'10px' }}>📌 Manager ne assign kiya</span>}
                         {locked && <span style={{ background:(STATUS_COLORS[task.status]||'#6B7280')+'20',color:STATUS_COLORS[task.status]||'#6B7280',fontSize:'10px',fontWeight:'700',padding:'2px 8px',borderRadius:'10px' }}>🔒 {task.status}</span>}
                       </div>
@@ -630,7 +629,7 @@ export default function EmployeePage() {
               )}
 
               {tasks.length > 0 && (
-                <div style={{ padding:'14px',borderRadius:'12px',background:'linear-gradient(135deg,#1e3a5f,#0f172a)',display:'flex',justifyContent:'space-between',alignItems:'center' }}>
+                <div style={{ padding:'14px',borderRadius:'12px',background:`linear-gradient(135deg, ${BRAND.navy}, ${BRAND.black})`,display:'flex',justifyContent:'space-between',alignItems:'center' }}>
                   <span style={{ color:'#94a3b8',fontWeight:'700',fontSize:'13px' }}>⚡ Total Productive Hrs</span>
                   <span style={{ color:'#4ade80',fontWeight:'900',fontSize:'22px' }}>{fmtHours(parseFloat(totalHrs))}</span>
                 </div>
@@ -655,11 +654,11 @@ export default function EmployeePage() {
           <div>
             <div style={{ display:'flex',gap:'8px',marginBottom:'20px',background:'white',borderRadius:'14px',padding:'6px',boxShadow:'0 2px 8px rgba(0,0,0,0.06)' }}>
               {[['daily','📅 Daily'],['weekly','📆 Weekly'],['monthly','🗓 Monthly']].map(([type, label]) => (
-                <button key={type} onClick={() => setSummaryType(type)} style={{ flex:1,padding:'10px',borderRadius:'10px',border:'none',background:summaryType===type?'linear-gradient(135deg,#1e3a5f,#4a90d9)':'transparent',color:summaryType===type?'white':'#64748b',fontWeight:'700',fontSize:'13px',cursor:'pointer' }}>{label}</button>
+                <button key={type} onClick={() => setSummaryType(type)} style={{ flex:1,padding:'10px',borderRadius:'10px',border:'none',background:summaryType===type?brandButtonGradient:'transparent',color:summaryType===type?'white':'#64748b',fontWeight:'700',fontSize:'13px',cursor:'pointer' }}>{label}</button>
               ))}
             </div>
             <div style={{ display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'14px',marginBottom:'20px' }}>
-              {[['📅 Days Worked',summaryDaysWorked,'#4a90d9'],['⚡ Total Hrs',summaryTotalHrs,'#10B981'],['📋 Tasks',summaryTasks.filter(t=>t.task_name).length,'#8B5CF6']].map(([label,val,color]) => (
+              {[['📅 Days Worked',summaryDaysWorked,BRAND.navy],['⚡ Total Hrs',summaryTotalHrs,'#10B981'],['📋 Tasks',summaryTasks.filter(t=>t.task_name).length,'#8B5CF6']].map(([label,val,color]) => (
                 <div key={label} style={{ background:'white',borderRadius:'14px',padding:'18px',textAlign:'center',boxShadow:'0 2px 8px rgba(0,0,0,0.06)',borderTop:`3px solid ${color}` }}>
                   <p style={{ color:'#94a3b8',fontSize:'11px',fontWeight:'600',marginBottom:'6px' }}>{label}</p>
                   <p style={{ fontSize:'26px',fontWeight:'900',color }}>{val}</p>
@@ -679,7 +678,7 @@ export default function EmployeePage() {
                 const nl = log ? nightLabel(log.office_in, log.office_out) : null;
                 return (
                   <div key={date} style={{ marginBottom:'12px',border:'2px solid #f1f5f9',borderRadius:'12px',overflow:'hidden' }}>
-                    <div style={{ background:isSubmitted?'#1e3a5f':'#f1f5f9',padding:'10px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'6px' }}>
+                    <div style={{ background:isSubmitted?BRAND.navy:'#f1f5f9',padding:'10px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'6px' }}>
                       <div style={{ display:'flex',alignItems:'center',gap:'6px' }}>
                         <span style={{ color:isSubmitted?'white':'#64748b',fontWeight:'800',fontSize:'13px' }}>{formatDateLabel(date)}</span>
                         {nl && <span style={{ fontSize:'10px',background:'rgba(165,180,252,0.2)',color:'#a5b4fc',padding:'2px 6px',borderRadius:'6px' }}>🌙</span>}

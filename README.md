@@ -1,3 +1,25 @@
+# Skagen Attendance & Task Tracker
+
+React frontend backed by **Supabase** (Postgres + Storage). Previously used Google Sheets + Apps Script — that backend has been fully removed.
+
+## Supabase setup
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. Open **SQL Editor** in your project and run the contents of [`supabase/schema.sql`](./supabase/schema.sql). This creates the `employees`, `daily_logs`, `tasks`, `manager_config` tables, RLS policies, the `employee-photos` storage bucket, and seeds the 5 employees + manager password from the requirements doc.
+3. Go to **Project Settings > API** and copy the **Project URL** and **anon public** key.
+4. Copy `.env.example` to `.env` and fill in:
+   ```
+   REACT_APP_SUPABASE_URL=https://YOUR-PROJECT-REF.supabase.co
+   REACT_APP_SUPABASE_ANON_KEY=YOUR-ANON-PUBLIC-KEY
+   ```
+5. `npm install` then `npm run build` to verify everything compiles. (Deploy the `build` folder, or run `npm start` locally when you're ready to test in a browser — not run automatically here per request.)
+
+### Security note
+
+Per current design, employee/manager passwords are stored in plain text in the `employees` / `manager_config` tables (matching the original Apps Script version's behavior), and Row Level Security policies allow the `anon` key full read/write — same trust model as the old "Anyone can access" Apps Script deployment. This is fine for a small internal team tool, but if this ever needs to be internet-facing beyond trusted staff, swap to Supabase Auth + hashed passwords + per-user RLS policies.
+
+---
+
 # Getting Started with Create React App
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).

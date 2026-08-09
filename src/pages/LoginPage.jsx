@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { api } from '../api';
+import { getEmployees, getManagerConfig } from '../api';
+import Logo from '../components/Logo';
+import { BRAND, brandButtonGradient } from '../theme';
 
 export default function LoginPage() {
   const [role, setRole] = useState('');
@@ -28,7 +30,7 @@ useEffect(() => {
 
   const loadEmployees = async () => {
     try {
-      const data = await api.get({ action: 'getEmployees' });
+      const data = await getEmployees();
       if (Array.isArray(data) && data.length > 0) setEmployees(data);
     } catch (err) {
       console.log(err);
@@ -43,7 +45,7 @@ useEffect(() => {
     setLoading(true);
     try {
       if (role === 'manager') {
-        const config = await api.get({ action: 'getManagerConfig' });
+        const config = await getManagerConfig();
         const managerPass = Array.isArray(config)
           ? config.find(c => c.key === 'manager_password')?.value
           : 'manager2024';
@@ -86,7 +88,7 @@ useEffect(() => {
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #4a90d9 100%)',
+      background: `linear-gradient(135deg, ${BRAND.black} 0%, ${BRAND.navy} 55%, ${BRAND.navyLight} 100%)`,
       display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px'
     }}>
       {/* Background dots */}
@@ -109,14 +111,10 @@ useEffect(() => {
       }}>
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <div style={{
-            width: '72px', height: '72px', borderRadius: '20px',
-            background: 'linear-gradient(135deg, #1e3a5f, #4a90d9)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            margin: '0 auto 14px', fontSize: '34px',
-            boxShadow: '0 8px 24px rgba(74,144,217,0.4)'
-          }}>🏢</div>
-          <h1 style={{ fontSize: '26px', fontWeight: '900', color: '#1e3a5f', letterSpacing: '-0.5px' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '14px' }}>
+            <Logo size={72} radius={20} />
+          </div>
+          <h1 style={{ fontSize: '26px', fontWeight: '900', color: BRAND.navy, letterSpacing: '-0.5px' }}>
             Skagen Tracker
           </h1>
           <p style={{ color: '#94a3b8', fontSize: '13px', marginTop: '4px' }}>
@@ -133,7 +131,7 @@ useEffect(() => {
             <button key={r} onClick={() => { setRole(r); setName(''); setPassword(''); }} style={{
               flex: 1, padding: '10px', borderRadius: '9px', border: 'none',
               background: role === r ? 'white' : 'transparent',
-              color: role === r ? '#1e3a5f' : '#94a3b8',
+              color: role === r ? BRAND.navy : '#94a3b8',
               fontWeight: '700', fontSize: '13px', cursor: 'pointer',
               boxShadow: role === r ? '0 2px 8px rgba(0,0,0,0.1)' : 'none',
               transition: 'all 0.2s'
@@ -158,7 +156,7 @@ useEffect(() => {
                 background: 'white', color: name ? '#1e293b' : '#94a3b8',
                 transition: 'border-color 0.2s'
               }}
-                onFocus={e => e.target.style.borderColor = '#4a90d9'}
+                onFocus={e => e.target.style.borderColor = BRAND.navyLight}
                 onBlur={e => e.target.style.borderColor = '#e2e8f0'}
               >
                 <option value="">-- Select karein --</option>
@@ -187,7 +185,7 @@ useEffect(() => {
                     border: '2px solid #e2e8f0', fontSize: '14px', outline: 'none',
                     transition: 'border-color 0.2s'
                   }}
-                  onFocus={e => e.target.style.borderColor = '#4a90d9'}
+                  onFocus={e => e.target.style.borderColor = BRAND.navyLight}
                   onBlur={e => e.target.style.borderColor = '#e2e8f0'}
                 />
                 <button onClick={() => setShowPass(!showPass)} style={{
@@ -198,10 +196,10 @@ useEffect(() => {
             </div>
             <button onClick={handleLogin} disabled={loading} style={{
               width: '100%', padding: '14px',
-              background: loading ? '#94a3b8' : 'linear-gradient(135deg, #1e3a5f, #4a90d9)',
+              background: loading ? '#94a3b8' : brandButtonGradient,
               color: 'white', borderRadius: '12px', border: 'none',
               fontWeight: '800', fontSize: '15px', cursor: loading ? 'not-allowed' : 'pointer',
-              boxShadow: loading ? 'none' : '0 4px 16px rgba(74,144,217,0.4)',
+              boxShadow: loading ? 'none' : `0 4px 16px ${BRAND.navyLight}66`,
               transition: 'all 0.2s'
             }}>
               {loading ? '⏳ Logging in...' : '🔐 Login'}

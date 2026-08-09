@@ -6,8 +6,14 @@ import {
   LineChart, Line, Legend
 } from 'recharts';
 import toast from 'react-hot-toast';
-import { api } from '../api';
+import {
+  getEmployees, getDailyLogs, getTasks, addEmployee as apiAddEmployee,
+  deleteEmployee as apiDeleteEmployee, saveTask as apiSaveTask, deleteTask as apiDeleteTask,
+  approveTask as apiApproveTask, rejectTask as apiRejectTask, updateManagerPassword as apiUpdateManagerPassword
+} from '../api';
 import { v4 as uuidv4 } from 'uuid';
+import Logo from '../components/Logo';
+import { BRAND, brandGradient, brandButtonGradient } from '../theme';
 
 // ── helpers ──────────────────────────────────────────────────────────────
 const norm = (s) => String(s || '').trim().toLowerCase();
@@ -123,21 +129,10 @@ export default function ManagerDashboard() {
   const loadData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true); else setRefreshing(true);
     try {
-      let emps = [], logs = [], tasks = [];
-      try {
-        const dash = await api.get({ action: 'getDashboardData' });
-        if (dash?.employees) { emps = dash.employees; logs = dash.logs || []; tasks = dash.tasks || []; }
-        else throw new Error();
-      } catch {
-        const [l, t, e] = await Promise.all([
-          api.get({ action: 'getDailyLogs' }),
-          api.get({ action: 'getTasks' }),
-          api.get({ action: 'getEmployees' })
-        ]);
-        emps = Array.isArray(e) ? e : [];
-        logs = Array.isArray(l) ? l : [];
-        tasks = Array.isArray(t) ? t : [];
-      }
+      const [l, t, e] = await Promise.all([getDailyLogs(), getTasks(), getEmployees()]);
+      const emps = Array.isArray(e) ? e : [];
+      const logs = Array.isArray(l) ? l : [];
+      const tasks = Array.isArray(t) ? t : [];
 
       const parsedLogs = logs.filter(l => l.employee_name && l.date).map(l => ({
         ...l,
@@ -194,7 +189,7 @@ export default function ManagerDashboard() {
   const approveTask = async (taskId) => {
     const note = prompt('Manager note (optional):') || '';
     try {
-      await api.post({ action: 'approveTask', task_id: taskId, note });
+      await apiApproveTask(taskId, note);
       const updated = allTasksRef.current.map(t => t.id === taskId ? { ...t, status: 'Approved', manager_note: note } : t);
       allTasksRef.current = updated; setAllTasks([...updated]);
       toast.success('✅ Approved!');
@@ -204,7 +199,7 @@ export default function ManagerDashboard() {
   const rejectTask = async (taskId) => {
     const note = prompt('Rejection reason:') || '';
     try {
-      await api.post({ action: 'rejectTask', task_id: taskId, note });
+      await apiRejectTask(taskId, note);
       const updated = allTasksRef.current.map(t => t.id === taskId ? { ...t, status: 'Rejected', manager_note: note } : t);
       allTasksRef.current = updated; setAllTasks([...updated]);
       toast.error('❌ Rejected!');
@@ -214,7 +209,7 @@ export default function ManagerDashboard() {
   const deleteAssignedTask = async (taskId) => {
     if (!window.confirm('Yeh assigned task delete karna chahte hain?')) return;
     try {
-      await api.post({ action: 'deleteTask', task_id: taskId });
+      await apiDeleteTask(taskId);
       const updated = allTasksRef.current.filter(t => t.id !== taskId);
       allTasksRef.current = updated; setAllTasks([...updated]);
       toast.success('🗑️ Task delete ho gaya!');
@@ -232,7 +227,7 @@ export default function ManagerDashboard() {
         designation: newEmp.designation.trim() || 'Team Member',
         password: newEmp.password.trim(), color: newEmp.color, photo_url: ''
       };
-      const res = await api.post({ action: 'addEmployee', data });
+      const res = await apiAddEmployee(data);
       if (res?.status === 'error') { toast.error(res.message || 'Add nahi hua!'); return; }
       setEmployees(prev => [...prev, data]);
       toast.success(`✅ ${newEmp.name} add ho gaya!`);
@@ -245,7 +240,7 @@ export default function ManagerDashboard() {
   const deleteEmployee = async (id, name) => {
     if (!window.confirm(`"${name}" delete karein?`)) return;
     try {
-      await api.post({ action: 'deleteEmployee', employee_id: id });
+      await apiDeleteEmployee(id);
       setEmployees(prev => prev.filter(e => String(e.id) !== String(id)));
       toast.success(`${name} delete ho gaya!`);
     } catch { toast.error('Delete nahi hua!'); }
@@ -277,7 +272,7 @@ export default function ManagerDashboard() {
         manager_note: 'Assigned by Manager',
         is_assigned: 'true'
       };
-      await api.post({ action: 'saveTask', data: taskData });
+      await apiSaveTask(taskData);
       allTasksRef.current = [...allTasksRef.current, { ...taskData, is_assigned: true }];
       setAllTasks([...allTasksRef.current]);
       toast.success(`📌 "${assignForm.task_name}" assign ho gaya!`);
@@ -291,7 +286,7 @@ export default function ManagerDashboard() {
     if (managerPass.new1 !== managerPass.new2) { toast.error('Match nahi!'); return; }
     setChangingPass(true);
     try {
-      await api.post({ action: 'updateManagerPassword', new_password: managerPass.new1 });
+      await apiUpdateManagerPassword(managerPass.new1);
       toast.success('Password change ho gaya!');
       setManagerPass({ old: '', new1: '', new2: '' });
     } catch { toast.error('Error!'); }
@@ -342,7 +337,7 @@ export default function ManagerDashboard() {
 
   if (loading) return (
     <div style={{ display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',flexDirection:'column',gap:'16px',background:'#f1f5f9' }}>
-      <div style={{ width:'48px',height:'48px',border:'4px solid #e2e8f0',borderTop:'4px solid #4a90d9',borderRadius:'50%',animation:'spin 1s linear infinite' }}/>
+      <div style={{ width:'48px',height:'48px',border:'4px solid #e2e8f0',borderTop:`4px solid ${BRAND.navyLight}`,borderRadius:'50%',animation:'spin 1s linear infinite' }}/>
       <p style={{ color:'#64748b' }}>Loading...</p>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
@@ -352,10 +347,11 @@ export default function ManagerDashboard() {
     <div style={{ minHeight:'100vh',background:'#f1f5f9' }}>
 
       {/* ── NAV ── */}
-      <div style={{ background:'linear-gradient(135deg,#0f172a,#1e3a5f)',position:'sticky',top:0,zIndex:100,boxShadow:'0 4px 20px rgba(0,0,0,0.3)' }}>
+      <div style={{ background:brandGradient,position:'sticky',top:0,zIndex:100,boxShadow:'0 4px 20px rgba(0,0,0,0.3)' }}>
         <div style={{ maxWidth:'1280px',margin:'0 auto',padding:'14px 24px',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:'10px' }}>
-          <div style={{ display:'flex',alignItems:'center',gap:'16px',flexWrap:'wrap' }}>
-            <span style={{ color:'white',fontWeight:'900',fontSize:'18px' }}>🏢 Manager Panel</span>
+          <div style={{ display:'flex',alignItems:'center',gap:'12px',flexWrap:'wrap' }}>
+            <Logo size={34} radius={9} />
+            <span style={{ color:'white',fontWeight:'900',fontSize:'18px' }}>Manager Panel</span>
             <div style={{ display:'flex',gap:'2px',background:'rgba(255,255,255,0.08)',borderRadius:'10px',padding:'3px' }}>
               {[['dashboard','📊 Dashboard'],['employees','👥 Team'],['analytics','📈 Analytics'],['settings','⚙️ Settings']].map(([t, l]) => (
                 <button key={t} onClick={() => setTab(t)} style={{ padding:'7px 14px',borderRadius:'8px',border:'none',cursor:'pointer',background:tab===t?'rgba(255,255,255,0.2)':'transparent',color:tab===t?'white':'#94a3b8',fontWeight:'700',fontSize:'12px' }}>{l}</button>
@@ -383,7 +379,7 @@ export default function ManagerDashboard() {
               {[
                 ['✅ Submitted', submittedCount, '#10B981', `${employees.length > 0 ? Math.round(submittedCount/employees.length*100) : 0}% complete`],
                 ['🔴 Pending', pendingCount, '#EF4444', 'Submit nahi hua'],
-                ['⚡ Total Hrs', totalHrs, '#4a90d9', 'Productive'],
+                ['⚡ Total Hrs', totalHrs, BRAND.navy, 'Productive'],
                 ['📋 Tasks', dayTasks.length, '#8B5CF6', "Today's tasks"],
               ].map(([label, val, color, sub]) => (
                 <div key={label} style={{ background:'white',borderRadius:'16px',padding:'20px',boxShadow:'0 2px 10px rgba(0,0,0,0.06)',borderTop:`3px solid ${color}` }}>
@@ -534,7 +530,7 @@ export default function ManagerDashboard() {
 
             {/* FIX 2 — Date Click Detail Panel */}
             {clickedDate && clickedEmpName && (
-              <div style={{ background:'white',borderRadius:'18px',padding:'22px',marginBottom:'24px',boxShadow:'0 4px 20px rgba(0,0,0,0.1)',border:'2px solid #4a90d9' }}>
+              <div style={{ background:'white',borderRadius:'18px',padding:'22px',marginBottom:'24px',boxShadow:'0 4px 20px rgba(0,0,0,0.1)',border:`2px solid ${BRAND.yellow}` }}>
                 <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'16px' }}>
                   <div>
                     <h3 style={{ fontSize:'17px',fontWeight:'800',color:'#0f172a' }}>
@@ -544,8 +540,8 @@ export default function ManagerDashboard() {
                       const log = allLogs.find(l => l.date === clickedDate && norm(l.employee_name) === norm(clickedEmpName));
                       return log ? (
                         <div style={{ display:'flex',gap:'12px',marginTop:'6px',flexWrap:'wrap' }}>
-                          <span style={{ fontSize:'13px',color:'#64748b' }}>🕐 In: <b style={{ color:'#1e3a5f' }}>{log.office_in || '--'}</b></span>
-                          <span style={{ fontSize:'13px',color:'#64748b' }}>🕐 Out: <b style={{ color:'#1e3a5f' }}>{log.office_out || '--'}</b></span>
+                          <span style={{ fontSize:'13px',color:'#64748b' }}>🕐 In: <b style={{ color:BRAND.navy }}>{log.office_in || '--'}</b></span>
+                          <span style={{ fontSize:'13px',color:'#64748b' }}>🕐 Out: <b style={{ color:BRAND.navy }}>{log.office_out || '--'}</b></span>
                           <span style={{ fontSize:'13px',color:'#10B981',fontWeight:'800' }}>⚡ {log.total_productive_hours || 0} hrs total</span>
                         </div>
                       ) : <p style={{ fontSize:'12px',color:'#94a3b8',marginTop:'4px' }}>No attendance record</p>;
@@ -624,7 +620,7 @@ export default function ManagerDashboard() {
                 </div>
               </div>
               <button onClick={addEmployee} disabled={addingEmp}
-                style={{ padding:'11px 28px',background:addingEmp?'#94a3b8':'linear-gradient(135deg,#1e3a5f,#4a90d9)',color:'white',border:'none',borderRadius:'10px',fontWeight:'700',fontSize:'14px',cursor:addingEmp?'not-allowed':'pointer',boxShadow:'0 4px 12px rgba(74,144,217,0.3)' }}>
+                style={{ padding:'11px 28px',background:addingEmp?'#94a3b8':brandButtonGradient,color:'white',border:'none',borderRadius:'10px',fontWeight:'700',fontSize:'14px',cursor:addingEmp?'not-allowed':'pointer',boxShadow:`0 4px 12px ${BRAND.navyLight}4d` }}>
                 {addingEmp ? '⏳ Adding...' : '✅ Add Karein'}
               </button>
             </div>
@@ -668,7 +664,7 @@ export default function ManagerDashboard() {
                   <label style={{ fontSize:'12px',fontWeight:'700',color:'#475569',display:'block',marginBottom:'6px' }}>📅 Period</label>
                   <div style={{ display:'flex',gap:'4px',background:'#f1f5f9',borderRadius:'10px',padding:'3px' }}>
                     {[['daily','📅 Daily'],['weekly','📆 Weekly'],['monthly','🗓 Monthly']].map(([p, l]) => (
-                      <button key={p} onClick={() => setAnalyticsPeriod(p)} style={{ padding:'7px 14px',borderRadius:'8px',border:'none',cursor:'pointer',background:analyticsPeriod===p?'linear-gradient(135deg,#1e3a5f,#4a90d9)':'transparent',color:analyticsPeriod===p?'white':'#64748b',fontWeight:'700',fontSize:'12px' }}>{l}</button>
+                      <button key={p} onClick={() => setAnalyticsPeriod(p)} style={{ padding:'7px 14px',borderRadius:'8px',border:'none',cursor:'pointer',background:analyticsPeriod===p?brandButtonGradient:'transparent',color:analyticsPeriod===p?'white':'#64748b',fontWeight:'700',fontSize:'12px' }}>{l}</button>
                     ))}
                   </div>
                 </div>
@@ -715,11 +711,11 @@ export default function ManagerDashboard() {
                         <div style={{ display:'flex',gap:'8px',marginBottom:'14px',flexWrap:'wrap' }}>
                           <div style={{ display:'flex',alignItems:'center',gap:'5px',background:'#f8fafc',padding:'5px 10px',borderRadius:'8px',border:'1px solid #e2e8f0' }}>
                             <span style={{ fontSize:'11px',color:'#64748b',fontWeight:'600' }}>🕐 In:</span>
-                            <span style={{ fontSize:'12px',fontWeight:'800',color:todayLog.office_in?'#1e3a5f':'#cbd5e1' }}>{todayLog.office_in || '--'}</span>
+                            <span style={{ fontSize:'12px',fontWeight:'800',color:todayLog.office_in?BRAND.navy:'#cbd5e1' }}>{todayLog.office_in || '--'}</span>
                           </div>
                           <div style={{ display:'flex',alignItems:'center',gap:'5px',background:'#f8fafc',padding:'5px 10px',borderRadius:'8px',border:'1px solid #e2e8f0' }}>
                             <span style={{ fontSize:'11px',color:'#64748b',fontWeight:'600' }}>🕐 Out:</span>
-                            <span style={{ fontSize:'12px',fontWeight:'800',color:todayLog.office_out?'#1e3a5f':'#cbd5e1' }}>{todayLog.office_out || '--'}</span>
+                            <span style={{ fontSize:'12px',fontWeight:'800',color:todayLog.office_out?BRAND.navy:'#cbd5e1' }}>{todayLog.office_out || '--'}</span>
                           </div>
                           {todayLog.office_in && todayLog.office_out && (
                             <div style={{ display:'flex',alignItems:'center',gap:'5px',background:'#f0f9ff',padding:'5px 10px',borderRadius:'8px',border:'1px solid #bae6fd' }}>
@@ -737,7 +733,7 @@ export default function ManagerDashboard() {
                       )}
 
                       <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'14px' }}>
-                        {[['⚡ Total Hrs',`${totalHrs} hrs`,emp.color||'#3B82F6'],['📅 Days',daysWorked,'#4a90d9'],['📊 Avg/Day',`${avgHrs} hrs`,'#8B5CF6'],['📋 Tasks',totalTasks,'#6B7280']].map(([l, v, c]) => (
+                        {[['⚡ Total Hrs',`${totalHrs} hrs`,emp.color||'#3B82F6'],['📅 Days',daysWorked,BRAND.navy],['📊 Avg/Day',`${avgHrs} hrs`,'#8B5CF6'],['📋 Tasks',totalTasks,'#6B7280']].map(([l, v, c]) => (
                           <div key={l} style={{ background:'#f8fafc',borderRadius:'10px',padding:'10px',textAlign:'center' }}>
                             <p style={{ fontSize:'10px',color:'#94a3b8',fontWeight:'600',marginBottom:'4px' }}>{l}</p>
                             <p style={{ fontSize:'18px',fontWeight:'900',color:c }}>{v}</p>
@@ -773,7 +769,7 @@ export default function ManagerDashboard() {
                       <YAxis axisLine={false} tickLine={false} style={{ fontSize:'11px' }}/>
                       <Tooltip contentStyle={{ borderRadius:'10px',border:'none',boxShadow:'0 4px 12px rgba(0,0,0,0.1)' }}/>
                       <Legend/>
-                      <Line type="monotone" dataKey="hrs" name="Hours" stroke="#4a90d9" strokeWidth={2.5} dot={{ r:4,fill:'#4a90d9' }}/>
+                      <Line type="monotone" dataKey="hrs" name="Hours" stroke={BRAND.navy} strokeWidth={2.5} dot={{ r:4,fill:BRAND.navy }}/>
                       <Line type="monotone" dataKey="tasks" name="Tasks" stroke="#8B5CF6" strokeWidth={2} dot={{ r:3,fill:'#8B5CF6' }} strokeDasharray="4 2"/>
                       <Line type="monotone" dataKey="approved" name="Approved" stroke="#10B981" strokeWidth={2} dot={{ r:3,fill:'#10B981' }} strokeDasharray="6 3"/>
                     </LineChart>
@@ -813,7 +809,7 @@ export default function ManagerDashboard() {
                                 <td style={{ padding:'12px',fontWeight:'700',fontSize:'13px',color:'#1e293b',whiteSpace:'nowrap' }}>{fmtDate(log.date)}</td>
                                 <td style={{ padding:'12px',fontSize:'13px',color:'#475569' }}>{log.office_in || '--'}</td>
                                 <td style={{ padding:'12px',fontSize:'13px',color:'#475569' }}>{log.office_out || '--'}</td>
-                                <td style={{ padding:'12px',fontSize:'13px',color:'#4a90d9',fontWeight:'600' }}>{offHrs}</td>
+                                <td style={{ padding:'12px',fontSize:'13px',color:BRAND.navy,fontWeight:'600' }}>{offHrs}</td>
                                 <td style={{ padding:'12px',fontSize:'14px',fontWeight:'800',color:'#10B981' }}>{log.total_productive_hours} hrs</td>
                                 <td style={{ padding:'12px',fontSize:'13px',fontWeight:'600' }}>{dayTaskCount}</td>
                                 <td style={{ padding:'12px' }}>
@@ -826,7 +822,7 @@ export default function ManagerDashboard() {
                           })}
                         </tbody>
                         <tfoot>
-                          <tr style={{ background:'#0f172a' }}>
+                          <tr style={{ background:BRAND.black }}>
                             <td colSpan={4} style={{ padding:'12px',color:'#94a3b8',fontWeight:'700',fontSize:'12px' }}>TOTAL</td>
                             <td style={{ padding:'12px',color:'#4ade80',fontWeight:'900',fontSize:'15px' }}>{empLogs.reduce((s, l) => s + l.total_productive_hours, 0).toFixed(1)} hrs</td>
                             <td style={{ padding:'12px',color:'#94a3b8',fontWeight:'700' }}>{empTasks.length}</td>
@@ -863,14 +859,14 @@ export default function ManagerDashboard() {
                   </div>
                 ))}
                 <button onClick={changeManagerPassword} disabled={changingPass}
-                  style={{ padding:'11px 24px',background:changingPass?'#94a3b8':'linear-gradient(135deg,#1e3a5f,#4a90d9)',color:'white',border:'none',borderRadius:'10px',fontWeight:'700',fontSize:'14px',cursor:changingPass?'not-allowed':'pointer' }}>
+                  style={{ padding:'11px 24px',background:changingPass?'#94a3b8':brandButtonGradient,color:'white',border:'none',borderRadius:'10px',fontWeight:'700',fontSize:'14px',cursor:changingPass?'not-allowed':'pointer' }}>
                   {changingPass ? '⏳...' : '🔐 Change'}
                 </button>
               </div>
             </div>
             <div style={{ background:'white',borderRadius:'18px',padding:'24px',boxShadow:'0 2px 10px rgba(0,0,0,0.06)' }}>
               <h3 style={{ fontWeight:'800',marginBottom:'16px',color:'#0f172a',fontSize:'17px' }}>ℹ️ System Info</h3>
-              {[['System','Skagen Attendance Tracker'],['Version','3.0.0'],['Employees',employees.length],['Auto-refresh','60s']].map(([l, v]) => (
+              {[['System','Skagen Attendance Tracker'],['Version','4.0.0'],['Backend','Supabase (PostgreSQL)'],['Employees',employees.length],['Auto-refresh','60s']].map(([l, v]) => (
                 <div key={l} style={{ display:'flex',justifyContent:'space-between',padding:'12px 0',borderBottom:'1px solid #f1f5f9' }}>
                   <span style={{ fontSize:'13px',color:'#64748b',fontWeight:'600' }}>{l}</span>
                   <span style={{ fontSize:'13px',color:'#1e293b',fontWeight:'700' }}>{v}</span>
