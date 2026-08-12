@@ -101,15 +101,27 @@ create policy "anon update employee photos" on storage.objects
   for update using (bucket_id = 'employee-photos');
 
 -- ============================================================================
--- Seed data — matches Skagen_Attendance_System_Requirements.md
+-- Seed data — current live roster (as of the Google Sheets historical import)
+-- Note: Huraira's (id 6) profile photo lives in the employee-photos storage
+-- bucket, not seeded here — photo_url is set separately after upload.
 -- ============================================================================
 insert into employees (id, name, designation, password, color) values
-  ('1', 'Farukh',    'Team Member', 'farukh123', '#3B82F6'),
-  ('2', 'Waheed',    'Team Member', 'waheed123', '#10B981'),
-  ('3', 'Ali Hasan', 'Team Member', 'ali123',    '#F59E0B'),
-  ('4', 'Suneel',    'Team Member', 'suneel123', '#EF4444'),
-  ('5', 'Usman',     'Team Member', 'usman123',  '#8B5CF6')
-on conflict (id) do nothing;
+  ('1',  'Farukh',              'Graphic Designer',         'farukh123',   '#3B82F6'),
+  ('3',  'Ali Hasan',           'Video Editor',              'ali123',      '#F59E0B'),
+  ('4',  'Suneel',              'Video Editor',              'suneel123',   '#EF4444'),
+  ('5',  'Uman',                'Managing Partner',          'usman123',    '#8B5CF6'),
+  ('6',  'Huraira',             'CEO',                       'huraira123',  '#3B82F6'),
+  ('8',  'Daniyal',             'Junior Graphic Designer',   'daniyal123',  '#F59E0B'),
+  ('9',  'Muhammad Abdullah',   'HR Manager',                'adii786#',    '#000000'),
+  ('10', 'Syed Hassan Naqvi',   'Video Editor',               'hassan@2025', '#3B82F6'),
+  ('11', 'Raja Ibrahim',        'Digital Marketer Intern',   'ibrahim@321', '#F59E0B'),
+  ('12', 'Ameer Hamza',         'Video Editing Intern',      'hamza@321',   '#EF4444'),
+  ('13', 'Ekam',                'Team Member',                'ekam123',     '#06B6D4')
+on conflict (id) do update set
+  name = excluded.name,
+  designation = excluded.designation,
+  password = excluded.password,
+  color = excluded.color;
 
 insert into manager_config (key, value) values
   ('manager_password', 'manager2024')
