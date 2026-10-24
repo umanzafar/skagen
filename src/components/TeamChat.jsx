@@ -26,6 +26,15 @@ const fmtTime = (iso) => {
 };
 
 const PAGE_SIZE = 200;
+const MAX_VOICE_SECS = 300; // auto-stop voice notes at 5 minutes
+
+// Chrome/Firefox record webm, Safari only mp4
+const pickAudioType = () => {
+  if (typeof MediaRecorder === 'undefined') return null;
+  return ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg']
+    .find(t => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
+};
+const fmtSecs = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 const taskLabel =(t) => `${t.task_name} · ${t.employee_name} · ${String(t.date).substring(0, 10)}`;
 
@@ -44,6 +53,13 @@ export default function TeamChat({ me, tasks = [], linkTask, onLinkHandled, onTa
   const fileRef = useRef(null);
   // set before prepending older messages, so we keep the scroll position instead of jumping to the bottom
   const prevScrollHeight = useRef(null);
+  // voice recording
+  const [recording, setRecording]   = useState(false);
+  const [recSecs, setRecSecs]       = useState(0);
+  const recorderRef = useRef(null);
+  const chunksRef   = useRef([]);
+  const sendOnStop  = useRef(false);
+  const timerRef    = useRef(null);
 
   // Load history + live updates
   useEffect(() => {
@@ -92,13 +108,15 @@ export default function TeamChat({ me, tasks = [], linkTask, onLinkHandled, onTa
     finally { setLoadingOlder(false); }
   };
 
-  const handleSend = async () => {
+  // voiceFile: a just-recorded voice note, sent in place of the picked file
+  const handleSend = async (voiceFile = null) => {
     const body = text.trim();
-    if (!body && !file && !task) return;
+    const outFile = voiceFile || file;
+    if (!body && !outFile && !task) return;
     setSending(true);
     try {
       let attachment = null;
-      if (file) attachment = await uploadChatFile(file);
+      if (outFile) attachment = await uploadChatFile(outFile);
       const msg = {
         id: uuidv4(),
         sender_id: String(me.id || ''),
@@ -117,13 +135,65 @@ export default function TeamChat({ me, tasks = [], linkTask, onLinkHandled, onTa
       };
       await sendMessage(msg);
       setMessages(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, { ...msg, created_at: new Date().toISOString() }]);
-      setText(''); setFile(null); setTask(null); setPickingTask(false);
-      if (fileRef.current) fileRef.current.value = '';
+      setText(''); setTask(null); setPickingTask(false);
+      if (!voiceFile) { setFile(null); if (fileRef.current) fileRef.current.value = ''; }
     } catch (err) {
       console.error('sendMessage error:', err);
       toast.error(`Message nahi gaya! ${err?.message || ''}`);
     } finally { setSending(false); }
   };
+
+  const stopTimer = () => { clearInterval(timerRef.current); timerRef.current = null; };
+
+  const startRecording = async () => {
+    const type = pickAudioType();
+    if (type === null || !navigator.mediaDevices?.getUserMedia) {
+      toast.error('Is browser mein voice recording support nahi hai.'); return;
+    }
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      toast.error('Mic ki permission nahi mili — browser settings mein allow karein.'); return;
+    }
+    const rec = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
+    chunksRef.current = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunksRef.current.push(e.data); };
+    rec.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      stopTimer(); setRecording(false);
+      if (!sendOnStop.current || !chunksRef.current.length) return;
+      const mime = rec.mimeType || type || 'audio/webm';
+      const ext = mime.includes('mp4') ? 'm4a' : mime.includes('ogg') ? 'ogg' : 'webm';
+      const blob = new Blob(chunksRef.current, { type: mime });
+      const name = `Voice note ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}.${ext}`;
+      handleSend(new File([blob], name, { type: mime.split(';')[0] }));
+    };
+    recorderRef.current = rec;
+    sendOnStop.current = false;
+    rec.start();
+    setRecSecs(0); setRecording(true);
+    timerRef.current = setInterval(() => {
+      setRecSecs(s => {
+        if (s + 1 >= MAX_VOICE_SECS) finishRecording(true);
+        return s + 1;
+      });
+    }, 1000);
+  };
+
+  // send=true uploads the note, false discards it
+  const finishRecording = (send) => {
+    const rec = recorderRef.current;
+    sendOnStop.current = send;
+    if (rec && rec.state !== 'inactive') rec.stop();
+  };
+
+  // release the mic if the chat unmounts mid-recording
+  useEffect(() => () => {
+    stopTimer();
+    const rec = recorderRef.current;
+    if (rec && rec.state !== 'inactive') { sendOnStop.current = false; rec.stop(); }
+  }, []);
 
   const onKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!sending) handleSend(); }
@@ -153,7 +223,7 @@ export default function TeamChat({ me, tasks = [], linkTask, onLinkHandled, onTa
               <div style={{ color:'white',fontWeight:'800',fontSize:'15px' }}>💬 Team Chat</div>
               <div style={{ color:'#a5b4fc',fontSize:'11px' }}>Poori team aur manager</div>
             </div>
-            <button onClick={() => setOpen(false)} style={{ background:'rgba(255,255,255,0.12)',color:'white',border:'none',borderRadius:'8px',padding:'6px 10px',cursor:'pointer',fontWeight:'700' }}>✕</button>
+            <button onClick={() => { if (recording) finishRecording(false); setOpen(false); }} style={{ background:'rgba(255,255,255,0.12)',color:'white',border:'none',borderRadius:'8px',padding:'6px 10px',cursor:'pointer',fontWeight:'700' }}>✕</button>
           </div>
 
           {/* Messages */}
@@ -178,6 +248,7 @@ export default function TeamChat({ me, tasks = [], linkTask, onLinkHandled, onTa
               const isManager = m.sender_role === 'manager';
               const isImage = String(m.attachment_type || '').startsWith('image/');
               const isVideo = String(m.attachment_type || '').startsWith('video/');
+              const isAudio = String(m.attachment_type || '').startsWith('audio/');
               return (
                 <div key={m.id} style={{ display:'flex',justifyContent:mine?'flex-end':'flex-start',marginBottom:'10px' }}>
                   <div style={{ maxWidth:'82%',background:mine?BRAND.navy:'white',color:mine?'white':'#1e293b',borderRadius:mine?'14px 14px 4px 14px':'14px 14px 14px 4px',padding:'8px 12px',boxShadow:'0 1px 3px rgba(0,0,0,0.08)' }}>
@@ -201,6 +272,11 @@ export default function TeamChat({ me, tasks = [], linkTask, onLinkHandled, onTa
                         <a href={m.attachment_url} target="_blank" rel="noreferrer">
                           <img src={m.attachment_url} alt={m.attachment_name || ''} style={{ maxWidth:'100%',maxHeight:'200px',borderRadius:'8px',display:'block',marginBottom:'6px' }}/>
                         </a>
+                      ) : isAudio ? (
+                        <div style={{ marginBottom:'6px' }}>
+                          <div style={{ fontSize:'11px',fontWeight:'700',opacity:0.8,marginBottom:'3px' }}>🎤 Voice note</div>
+                          <audio src={m.attachment_url} controls preload="metadata" style={{ width:'240px',maxWidth:'100%',height:'36px',display:'block' }}/>
+                        </div>
                       ) : isVideo ? (
                         <video src={m.attachment_url} controls style={{ maxWidth:'100%',maxHeight:'200px',borderRadius:'8px',display:'block',marginBottom:'6px' }}/>
                       ) : (
@@ -252,7 +328,21 @@ export default function TeamChat({ me, tasks = [], linkTask, onLinkHandled, onTa
             </div>
           )}
 
+          {/* Recording bar */}
+          {recording && (
+            <div style={{ padding:'10px 12px',display:'flex',gap:'8px',alignItems:'center',background:'#FEF2F2',borderTop:'1px solid #FECACA' }}>
+              <span style={{ width:'10px',height:'10px',borderRadius:'50%',background:'#EF4444',animation:'chatRecPulse 1s infinite' }}/>
+              <span style={{ flex:1,fontSize:'13px',fontWeight:'700',color:'#991B1B' }}>Recording... {fmtSecs(recSecs)}</span>
+              <button onClick={() => finishRecording(false)} title="Cancel"
+                style={{ padding:'8px 12px',background:'white',color:'#DC2626',border:'1px solid #FECACA',borderRadius:'10px',cursor:'pointer',fontWeight:'700',fontSize:'12px' }}>✕ Cancel</button>
+              <button onClick={() => finishRecording(true)} title="Send voice note"
+                style={{ padding:'8px 14px',background:brandButtonGradient,color:'white',border:'none',borderRadius:'10px',cursor:'pointer',fontWeight:'800',fontSize:'13px' }}>➤ Send</button>
+              <style>{`@keyframes chatRecPulse{0%,100%{opacity:1}50%{opacity:0.3}}`}</style>
+            </div>
+          )}
+
           {/* Composer */}
+          {!recording && (
           <div style={{ padding:'10px 12px',display:'flex',gap:'6px',alignItems:'flex-end',background:'white',borderTop:(task||file)?'none':'1px solid #e2e8f0' }}>
             <input ref={fileRef} type="file" style={{ display:'none' }} onChange={e => {
               const f = e.target.files[0]; if (!f) return;
@@ -266,11 +356,14 @@ export default function TeamChat({ me, tasks = [], linkTask, onLinkHandled, onTa
             <textarea value={text} onChange={e => setText(e.target.value)} onKeyDown={onKeyDown}
               placeholder="Message likho..." rows={1}
               style={{ flex:1,resize:'none',padding:'9px 12px',borderRadius:'10px',border:'2px solid #e2e8f0',outline:'none',fontSize:'13px',fontFamily:'inherit',maxHeight:'90px',color:'#1e293b' }}/>
-            <button onClick={handleSend} disabled={sending || (!text.trim() && !file && !task)}
+            <button title="Voice note record karein" onClick={startRecording} disabled={sending}
+              style={{ padding:'9px',background:'#f1f5f9',border:'none',borderRadius:'10px',cursor:sending?'not-allowed':'pointer',fontSize:'15px' }}>🎤</button>
+            <button onClick={() => handleSend()} disabled={sending || (!text.trim() && !file && !task)}
               style={{ padding:'9px 14px',background:sending?'#94a3b8':brandButtonGradient,color:'white',border:'none',borderRadius:'10px',cursor:sending?'not-allowed':'pointer',fontWeight:'800',fontSize:'13px' }}>
               {sending ? '⏳' : '➤'}
             </button>
           </div>
+          )}
         </div>
       )}
     </>
