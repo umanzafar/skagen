@@ -1,4 +1,4 @@
-import { supabase, PHOTO_BUCKET } from './lib/supabaseClient';
+import { supabase, PHOTO_BUCKET, CHAT_BUCKET } from './lib/supabaseClient';
 
 // ─── employees ──────────────────────────────────────────────────────────────
 export async function getEmployees() {
@@ -123,4 +123,43 @@ export async function rejectTask(taskId, note) {
   const { error } = await supabase.from('tasks').update({ status: 'Rejected', manager_note: note || '' }).eq('id', taskId);
   if (error) throw error;
   return { status: 'ok' };
+}
+
+// ─── team chat ──────────────────────────────────────────────────────────────
+// Latest `limit` messages, oldest first. Pass `before` (a created_at) to page further back.
+export async function getMessages(limit = 200, before = null) {
+  let query = supabase
+    .from('messages')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (before) query = query.lt('created_at', before);
+  const { data, error } = await query;
+  if (error) { console.error('getMessages:', error); return []; }
+  return (data || []).reverse();
+}
+
+export async function sendMessage(msg) {
+  const { error } = await supabase.from('messages').insert(msg);
+  if (error) throw error;
+  return { status: 'ok' };
+}
+
+export async function uploadChatFile(file) {
+  if (file.size > 10 * 1024 * 1024) throw new Error('File 10MB se choti honi chahiye!');
+  const safeName = file.name.replace(/[^\w.-]+/g, '_');
+  const path = `${Date.now()}-${safeName}`;
+  const { error } = await supabase.storage.from(CHAT_BUCKET).upload(path, file, { cacheControl: '3600' });
+  if (error) throw error;
+  const { data: { publicUrl } } = supabase.storage.from(CHAT_BUCKET).getPublicUrl(path);
+  return { url: publicUrl, name: file.name, type: file.type || '' };
+}
+
+// Calls onInsert(row) for every new message; returns an unsubscribe function
+export function subscribeMessages(onInsert) {
+  const channel = supabase
+    .channel('team-chat')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => onInsert(payload.new))
+    .subscribe();
+  return () => { supabase.removeChannel(channel); };
 }

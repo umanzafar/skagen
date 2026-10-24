@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { getDailyLogs, getTasks, saveTask as apiSaveTask, submitDay as apiSubmitDay, uploadPhoto } from '../api';
+import { getDailyLogs, getTasks, getEmployees, saveTask as apiSaveTask, submitDay as apiSubmitDay, uploadPhoto } from '../api';
 import { v4 as uuidv4 } from 'uuid';
 import { BRAND, brandGradient, brandButtonGradient } from '../theme';
+import TeamChat from '../components/TeamChat';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 const STATUS_COLORS = {
@@ -112,13 +113,15 @@ const newTask = () => ({
 // ─── component ────────────────────────────────────────────────────────────────
 export default function EmployeePage() {
   const navigate  = useNavigate();
-  const rawUser   = JSON.parse(localStorage.getItem('user') || 'null');
   // Ensure id and name are clean — never "undefined" string
-  const user      = rawUser ? {
-    ...rawUser,
-    id:   String(rawUser.id   || '').trim(),
-    name: String(rawUser.name || '').trim(),
-  } : null;
+  const [user, setUser] = useState(() => {
+    const rawUser = JSON.parse(localStorage.getItem('user') || 'null');
+    return rawUser ? {
+      ...rawUser,
+      id:   String(rawUser.id   || '').trim(),
+      name: String(rawUser.name || '').trim(),
+    } : null;
+  });
   const today     = todayLocal();
 
   const [clock, setClock]               = useState('');
@@ -135,6 +138,7 @@ export default function EmployeePage() {
   const [loading, setLoading]           = useState(true);
   const [saving, setSaving]             = useState(false);
   const [photo, setPhoto]               = useState(user?.photo || '');
+  const [chatTask, setChatTask]         = useState(null);
 
   const allLogsRef  = useRef([]);
   const allTasksRef = useRef([]);
@@ -206,7 +210,21 @@ export default function EmployeePage() {
       setLoading(false);
     }
     try {
-      const [logsData, tasksData] = await Promise.all([getDailyLogs(), getTasks()]);
+      const [logsData, tasksData, employees] = await Promise.all([getDailyLogs(), getTasks(), getEmployees()]);
+
+      // Stale session check: saved id must exist in employees table, warna
+      // daily_logs/tasks insert foreign key error dega. Name se re-resolve karo.
+      if (Array.isArray(employees) && employees.length > 0 && !employees.some(e => String(e.id) === user.id)) {
+        const byName = employees.find(e => String(e.name).trim().toLowerCase() === user.name.toLowerCase());
+        if (!byName) {
+          toast.error('Aapka account nahi mila — dobara login karein.');
+          localStorage.removeItem('user'); navigate('/login'); return;
+        }
+        user.id = String(byName.id);
+        const fixed = { ...user, id: user.id };
+        localStorage.setItem('user', JSON.stringify(fixed));
+        setUser(fixed);
+      }
 
       const myId   = String(user.id || '').trim().toLowerCase();
       const myName = String(user.name || '').trim().toLowerCase();
@@ -270,6 +288,8 @@ export default function EmployeePage() {
     if (!task || !task.task_name.trim()) { toast.error('Task naam zaruri hai!'); return; }
     if (!task.start_time || !task.end_time) { toast.error('Start aur end time daalen!'); return; }
     const empId = String(user.id), empName = String(user.name);
+    // keep the employee's chosen stage — don't reset In Progress back to Briefed
+    const status = task.status === 'In Progress' ? 'In Progress' : 'Briefed';
     const toastId = toast.loading('Task save ho raha hai...');
     try {
       await apiSaveTask({
@@ -283,13 +303,13 @@ export default function EmployeePage() {
         end_time: String(task.end_time),
         break_time: Number(task.break_time) || 0,
         productive_hours: Number(task.productive_hours) || 0,
-        status: 'Briefed',
+        status,
         notes: String(task.notes || ''),
         manager_note: '',
         is_assigned: task.is_assigned ? 'true' : 'false'
       });
       // Update cache
-      const savedTask = { ...task, employee_id: empId, employee_name: empName, date: selectedDate, status: 'Briefed' };
+      const savedTask = { ...task, employee_id: empId, employee_name: empName, date: selectedDate, status };
       const updatedTasks = [
         ...allTasksRef.current.filter(t => t.id !== task.id),
         savedTask
@@ -552,6 +572,10 @@ export default function EmployeePage() {
                         {locked && <span style={{ background:(STATUS_COLORS[task.status]||'#6B7280')+'20',color:STATUS_COLORS[task.status]||'#6B7280',fontSize:'10px',fontWeight:'700',padding:'2px 8px',borderRadius:'10px' }}>🔒 {task.status}</span>}
                       </div>
                       <div style={{ display:'flex',alignItems:'center',gap:'4px',flexWrap:'wrap' }}>
+                        {task.task_name.trim() && (
+                          <button title="Team chat mein discuss karein" onClick={() => setChatTask({ ...task, employee_name: user?.name, date: selectedDate })}
+                            style={{ padding:'4px 8px',borderRadius:'8px',border:'2px solid #e2e8f0',background:'white',cursor:'pointer',fontSize:'11px' }}>💬</button>
+                        )}
                         {!locked && ['Briefed','In Progress'].map(s => (
                           <button key={s} onClick={() => updateTask(task.id, 'status', s)} style={{ padding:'4px 10px',borderRadius:'8px',border:'2px solid',borderColor:task.status===s?STATUS_COLORS[s]:'#e2e8f0',background:task.status===s?STATUS_COLORS[s]+'20':'white',color:task.status===s?STATUS_COLORS[s]:'#94a3b8',fontWeight:'700',fontSize:'10px',cursor:'pointer',whiteSpace:'nowrap' }}>{s}</button>
                         ))}
@@ -721,6 +745,17 @@ export default function EmployeePage() {
           </div>
         )}
       </div>
+
+      <TeamChat
+        me={{ id: user?.id, name: user?.name, role: 'employee', color: user?.color }}
+        tasks={allTasksData}
+        linkTask={chatTask}
+        onLinkHandled={() => setChatTask(null)}
+        onTaskClick={(m) => {
+          if (String(m.task_employee || '').toLowerCase() !== String(user?.name || '').toLowerCase() || !m.task_date) return;
+          setActiveTab('today'); handleDateChange(m.task_date);
+        }}
+      />
     </div>
   );
 }

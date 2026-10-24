@@ -13,6 +13,7 @@ import {
 } from '../api';
 import { v4 as uuidv4 } from 'uuid';
 import Logo from '../components/Logo';
+import TeamChat from '../components/TeamChat';
 import { BRAND, brandGradient, brandButtonGradient } from '../theme';
 
 // ── helpers ──────────────────────────────────────────────────────────────
@@ -31,6 +32,39 @@ const empMatch = (row, emp) => {
   const eid = norm(emp.id), ename = norm(emp.name);
   if (eid && eid !== 'undefined' && rid && rid !== 'undefined' && rid === eid) return true;
   return rname === ename && ename.length > 0;
+};
+
+// Manager can approve/reject a task even if the employee left it at Briefed / In Progress
+const APPROVABLE = ['briefed', 'in progress', 'submitted'];
+const isApprovable = (t) => APPROVABLE.includes(norm(t.status));
+
+// Day hours come from the tasks themselves (every status — a rejected task means the
+// deliverable needs fixes, the time was still worked), so work left
+// at Briefed / In Progress — or on a day the employee never submitted — still counts.
+// Days with tasks but no daily_log row get a placeholder (unsubmitted) log.
+const withTaskHours = (logs, tasks) => {
+  const key = (r) => `${norm(r.employee_id) || norm(r.employee_name)}|${r.date}`;
+  const hrsByKey = new Map(), firstTask = new Map();
+  tasks.forEach(t => {
+    const k = key(t);
+    if (!firstTask.has(k)) firstTask.set(k, t);
+    hrsByKey.set(k, (hrsByKey.get(k) || 0) + t.productive_hours);
+  });
+  const round = (n) => parseFloat(n.toFixed(2));
+  const seen = new Set();
+  const merged = logs.map(l => {
+    const k = key(l); seen.add(k);
+    return firstTask.has(k) ? { ...l, total_productive_hours: round(hrsByKey.get(k) || 0) } : l;
+  });
+  firstTask.forEach((t, k) => {
+    if (seen.has(k) || !hrsByKey.get(k)) return;
+    merged.push({
+      id: `${t.employee_id}_${t.date}`, employee_id: t.employee_id, employee_name: t.employee_name,
+      date: t.date, office_in: '', office_out: '', submitted: false,
+      total_productive_hours: round(hrsByKey.get(k) || 0),
+    });
+  });
+  return merged;
 };
 
 const getWeekRange = (ref) => {
@@ -124,6 +158,7 @@ export default function ManagerDashboard() {
   // FIX 2 — Date click detail panel state
   const [clickedDate, setClickedDate] = useState(null);
   const [clickedEmpName, setClickedEmpName] = useState(null);
+  const [chatTask, setChatTask] = useState(null);
 
   // ── Load data ───────────────────────────────────────────────────────────
   const loadData = useCallback(async (silent = false) => {
@@ -159,9 +194,10 @@ export default function ManagerDashboard() {
         end_time: formatTime(t.end_time),
       }));
 
-      allLogsRef.current = parsedLogs;
+      const mergedLogs = withTaskHours(parsedLogs, parsedTasks);
+      allLogsRef.current = mergedLogs;
       allTasksRef.current = parsedTasks;
-      setAllLogs(parsedLogs);
+      setAllLogs(mergedLogs);
       setAllTasks(parsedTasks);
       setEmployees(Array.isArray(emps) ? emps.filter(e => e.name) : []);
       setLastUpdated(new Date().toLocaleTimeString('en-US', { hour12: true }));
@@ -192,6 +228,7 @@ export default function ManagerDashboard() {
       await apiApproveTask(taskId, note);
       const updated = allTasksRef.current.map(t => t.id === taskId ? { ...t, status: 'Approved', manager_note: note } : t);
       allTasksRef.current = updated; setAllTasks([...updated]);
+      allLogsRef.current = withTaskHours(allLogsRef.current, updated); setAllLogs(allLogsRef.current);
       toast.success('✅ Approved!');
     } catch { toast.error('Error!'); }
   };
@@ -202,6 +239,7 @@ export default function ManagerDashboard() {
       await apiRejectTask(taskId, note);
       const updated = allTasksRef.current.map(t => t.id === taskId ? { ...t, status: 'Rejected', manager_note: note } : t);
       allTasksRef.current = updated; setAllTasks([...updated]);
+      allLogsRef.current = withTaskHours(allLogsRef.current, updated); setAllLogs(allLogsRef.current);
       toast.error('❌ Rejected!');
     } catch { toast.error('Error!'); }
   };
@@ -309,7 +347,7 @@ export default function ManagerDashboard() {
       const empLogs = allLogs.filter(l => dateRange.includes(l.date) && empMatch(l, emp));
       const empTasks = allTasks.filter(t => dateRange.includes(t.date) && empMatch(t, emp));
       const totalHrs = empLogs.reduce((s, l) => s + l.total_productive_hours, 0);
-      const daysWorked = new Set(empLogs.filter(l => l.submitted).map(l => l.date)).size;
+      const daysWorked = new Set(empLogs.filter(l => l.submitted || l.total_productive_hours > 0).map(l => l.date)).size;
       const avgHrs = daysWorked > 0 ? totalHrs / daysWorked : 0;
       return {
         emp, empLogs, empTasks,
@@ -459,6 +497,7 @@ export default function ManagerDashboard() {
                         </div>
                         <div style={{ display:'flex',gap:'8px',alignItems:'center' }}>
                           <span style={{ padding:'4px 12px',borderRadius:'20px',fontSize:'12px',fontWeight:'700',background:sColor(task.status)+'20',color:sColor(task.status) }}>{task.status}</span>
+                          <button title="Team chat mein discuss karein" onClick={() => setChatTask(task)} style={{ padding:'4px 10px',background:'#EFF6FF',color:BRAND.navyLight,border:'none',borderRadius:'8px',cursor:'pointer',fontWeight:'700',fontSize:'12px' }}>💬</button>
                           {task.is_assigned && (
                             <button onClick={() => deleteAssignedTask(task.id)} style={{ padding:'4px 10px',background:'#FEE2E2',color:'#DC2626',border:'none',borderRadius:'8px',cursor:'pointer',fontWeight:'700',fontSize:'12px' }}>🗑 Delete</button>
                           )}
@@ -473,7 +512,7 @@ export default function ManagerDashboard() {
                       {task.manager_note && task.manager_note !== 'Assigned by Manager' && (
                         <div style={{ fontSize:'13px',color:'#EF4444',background:'#FEF2F2',padding:'8px 12px',borderRadius:'8px',marginBottom:'8px',border:'1px solid #FECACA' }}>💬 {task.manager_note}</div>
                       )}
-                      {norm(task.status) === 'submitted' && (
+                      {isApprovable(task) && (
                         <div style={{ display:'flex',gap:'8px',marginTop:'10px' }}>
                           <button onClick={() => approveTask(task.id)} style={{ padding:'8px 20px',background:'linear-gradient(135deg,#059669,#10B981)',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',fontWeight:'700',fontSize:'13px' }}>✅ Approve</button>
                           <button onClick={() => rejectTask(task.id)} style={{ padding:'8px 20px',background:'linear-gradient(135deg,#DC2626,#EF4444)',color:'white',border:'none',borderRadius:'8px',cursor:'pointer',fontWeight:'700',fontSize:'13px' }}>❌ Reject</button>
@@ -932,6 +971,17 @@ export default function ManagerDashboard() {
           </div>
         </div>
       )}
+
+      <TeamChat
+        me={{ id: 'manager', name: 'Manager', role: 'manager', color: BRAND.navy }}
+        tasks={allTasks}
+        linkTask={chatTask}
+        onLinkHandled={() => setChatTask(null)}
+        onTaskClick={(m) => {
+          if (!m.task_date) return;
+          setTab('dashboard'); setSelectedDate(m.task_date); setSelectedEmp(m.task_employee || null);
+        }}
+      />
     </div>
   );
 }

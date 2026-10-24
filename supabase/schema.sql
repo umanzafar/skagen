@@ -49,6 +49,32 @@ create table if not exists tasks (
 );
 create index if not exists idx_tasks_employee_date on tasks(employee_id, date);
 
+-- ── messages (team group chat) ────────────────────────────────────────────
+create table if not exists messages (
+  id               text primary key, -- uuid, generated client-side
+  sender_id        text not null default '', -- employee id, or 'manager'
+  sender_name      text not null,
+  sender_role      text not null default 'employee', -- employee / manager
+  sender_color     text not null default '#3B82F6',
+  body             text not null default '',
+  task_id          text,          -- optional linked task (snapshot below so it survives task deletes)
+  task_name        text,
+  task_employee    text,
+  task_date        date,
+  task_status      text,
+  attachment_url   text,
+  attachment_name  text,
+  attachment_type  text,          -- mime type
+  created_at       timestamptz not null default now()
+);
+create index if not exists idx_messages_created on messages(created_at);
+
+-- Realtime: push new messages to open chat windows
+do $$ begin
+  alter publication supabase_realtime add table messages;
+exception when duplicate_object then null;
+end $$;
+
 -- ── manager_config ───────────────────────────────────────────────────────
 create table if not exists manager_config (
   key    text primary key,
@@ -68,6 +94,10 @@ alter table employees enable row level security;
 alter table daily_logs enable row level security;
 alter table tasks enable row level security;
 alter table manager_config enable row level security;
+alter table messages enable row level security;
+
+drop policy if exists "anon full access" on messages;
+create policy "anon full access" on messages for all using (true) with check (true);
 
 drop policy if exists "anon full access" on employees;
 create policy "anon full access" on employees for all using (true) with check (true);
@@ -99,6 +129,19 @@ create policy "anon upload employee photos" on storage.objects
 drop policy if exists "anon update employee photos" on storage.objects;
 create policy "anon update employee photos" on storage.objects
   for update using (bucket_id = 'employee-photos');
+
+-- ── Storage bucket for chat attachments ──────────────────────────────────
+insert into storage.buckets (id, name, public)
+values ('chat-files', 'chat-files', true)
+on conflict (id) do nothing;
+
+drop policy if exists "public read chat files" on storage.objects;
+create policy "public read chat files" on storage.objects
+  for select using (bucket_id = 'chat-files');
+
+drop policy if exists "anon upload chat files" on storage.objects;
+create policy "anon upload chat files" on storage.objects
+  for insert with check (bucket_id = 'chat-files');
 
 -- ============================================================================
 -- Seed data — current live roster (as of the Google Sheets historical import)
