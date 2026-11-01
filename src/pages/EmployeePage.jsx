@@ -17,7 +17,10 @@ const URDU_AYAT = 'دیانت وہ ہے جو اُس وقت بھی قائم رہ�
 const AYAT_EN  = '"Integrity is what remains when no one is watching — because Allah sees everything."';
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
-const todayLocal = () => new Date().toISOString().split('T')[0];
+// Local "YYYY-MM-DD" — toISOString() is UTC, which in Pakistan (UTC+5) shifts every
+// local midnight back to the previous day (month showed 2nd–29th, not 1st–30th)
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const todayLocal = () => ymd(new Date());
 
 const formatDateLabel = (dateStr) =>
   new Date(dateStr + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
@@ -90,15 +93,17 @@ const nightLabel   = (officeIn, officeOut) => {
 // If raat 22:00 se agle din 04:00 tak → selectedDate wali date use hoti hai
 // Employee khud date select karta hai — wahi date use hogi
 
-const getMonthDates = () => {
-  const now = new Date(), yr = now.getFullYear(), mo = now.getMonth();
+// offset: 0 = this month, -1 = last month, ...
+const monthStart = (offset = 0) => { const now = new Date(); return new Date(now.getFullYear(), now.getMonth() + offset, 1); };
+const getMonthDates = (offset = 0) => {
+  const first = monthStart(offset), yr = first.getFullYear(), mo = first.getMonth();
   const last = new Date(yr, mo + 1, 0).getDate();
-  return Array.from({ length: last }, (_, i) => new Date(yr, mo, i + 1).toISOString().split('T')[0]);
+  return Array.from({ length: last }, (_, i) => ymd(new Date(yr, mo, i + 1)));
 };
 const getWeekDates = () => {
   const now = new Date(), day = now.getDay();
   const mon = new Date(now); mon.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
-  return Array.from({ length: 7 }, (_, i) => { const d = new Date(mon); d.setDate(mon.getDate() + i); return d.toISOString().split('T')[0]; });
+  return Array.from({ length: 7 }, (_, i) => { const d = new Date(mon); d.setDate(mon.getDate() + i); return ymd(d); });
 };
 
 // localStorage cache
@@ -127,6 +132,7 @@ export default function EmployeePage() {
   const [clock, setClock]               = useState('');
   const [activeTab, setActiveTab]       = useState('today');
   const [summaryType, setSummaryType]   = useState('monthly');
+  const [monthOffset, setMonthOffset]   = useState(0); // monthly summary: 0 = this month, -1 = last month
   const [selectedDate, setSelectedDate] = useState(today);
   const [officeIn, setOfficeIn]         = useState('');
   const [officeOut, setOfficeOut]       = useState('');
@@ -399,12 +405,18 @@ export default function EmployeePage() {
   const canSubmit    = !submitted && selectedDate === today;
 
   // Summary
-  const getSummaryDates = () => summaryType === 'daily' ? [today] : summaryType === 'weekly' ? getWeekDates() : getMonthDates();
+  const getSummaryDates = () => summaryType === 'daily' ? [today] : summaryType === 'weekly' ? getWeekDates() : getMonthDates(monthOffset);
   const summaryDates    = getSummaryDates();
   const summaryLogs     = allLogs.filter(l => summaryDates.includes(String(l.date).substring(0, 10)));
   const summaryTasks    = allTasksData.filter(t => summaryDates.includes(String(t.date).substring(0, 10)));
   const summaryTotalHrs = fmtHours(summaryTasks.reduce((s, t) => s + Number(t.productive_hours || 0), 0));
-  const summaryDaysWorked = new Set(summaryLogs.filter(l => l.submitted === true || l.submitted === 'TRUE' || l.submitted === 'true').map(l => String(l.date).substring(0, 10))).size;
+  // a day counts as worked if submitted, or if it has task hours (same as the manager view)
+  const dayTaskHrs = (date) => allTasksData.filter(t => String(t.date).substring(0, 10) === date && t.task_name).reduce((s, t) => s + Number(t.productive_hours || 0), 0);
+  const summaryDaysWorked = new Set([
+    ...summaryLogs.filter(l => l.submitted === true || l.submitted === 'TRUE' || l.submitted === 'true').map(l => String(l.date).substring(0, 10)),
+    ...summaryDates.filter(d => dayTaskHrs(d) > 0),
+  ]).size;
+  const monthLabel = monthStart(monthOffset).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
 
   if (loading) return (
     <div style={{ display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',flexDirection:'column',gap:'16px',background:'#f1f5f9' }}>
@@ -678,9 +690,18 @@ export default function EmployeePage() {
           <div>
             <div style={{ display:'flex',gap:'8px',marginBottom:'20px',background:'white',borderRadius:'14px',padding:'6px',boxShadow:'0 2px 8px rgba(0,0,0,0.06)' }}>
               {[['daily','📅 Daily'],['weekly','📆 Weekly'],['monthly','🗓 Monthly']].map(([type, label]) => (
-                <button key={type} onClick={() => setSummaryType(type)} style={{ flex:1,padding:'10px',borderRadius:'10px',border:'none',background:summaryType===type?brandButtonGradient:'transparent',color:summaryType===type?'white':'#64748b',fontWeight:'700',fontSize:'13px',cursor:'pointer' }}>{label}</button>
+                <button key={type} onClick={() => { setSummaryType(type); setMonthOffset(0); }} style={{ flex:1,padding:'10px',borderRadius:'10px',border:'none',background:summaryType===type?brandButtonGradient:'transparent',color:summaryType===type?'white':'#64748b',fontWeight:'700',fontSize:'13px',cursor:'pointer' }}>{label}</button>
               ))}
             </div>
+            {summaryType === 'monthly' && (
+              <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',gap:'8px',marginBottom:'16px',background:'white',borderRadius:'14px',padding:'8px',boxShadow:'0 2px 8px rgba(0,0,0,0.06)' }}>
+                <button onClick={() => setMonthOffset(o => o - 1)}
+                  style={{ padding:'8px 14px',borderRadius:'10px',border:'2px solid #e2e8f0',background:'white',color:BRAND.navy,fontWeight:'700',fontSize:'12px',cursor:'pointer' }}>◀ Pichla Mahina</button>
+                <span style={{ fontWeight:'800',color:'#0f172a',fontSize:'14px' }}>🗓 {monthLabel}</span>
+                <button onClick={() => setMonthOffset(o => Math.min(0, o + 1))} disabled={monthOffset === 0}
+                  style={{ padding:'8px 14px',borderRadius:'10px',border:'2px solid #e2e8f0',background:monthOffset===0?'#f8fafc':'white',color:monthOffset===0?'#cbd5e1':BRAND.navy,fontWeight:'700',fontSize:'12px',cursor:monthOffset===0?'not-allowed':'pointer' }}>Agla Mahina ▶</button>
+              </div>
+            )}
             <div style={{ display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'14px',marginBottom:'20px' }}>
               {[['📅 Days Worked',summaryDaysWorked,BRAND.navy],['⚡ Total Hrs',summaryTotalHrs,'#10B981'],['📋 Tasks',summaryTasks.filter(t=>t.task_name).length,'#8B5CF6']].map(([label,val,color]) => (
                 <div key={label} style={{ background:'white',borderRadius:'14px',padding:'18px',textAlign:'center',boxShadow:'0 2px 8px rgba(0,0,0,0.06)',borderTop:`3px solid ${color}` }}>
@@ -692,7 +713,7 @@ export default function EmployeePage() {
 
             <div style={{ background:'white',borderRadius:'18px',padding:'20px',boxShadow:'0 2px 10px rgba(0,0,0,0.06)' }}>
               <h3 style={{ fontWeight:'800',marginBottom:'16px',color:'#0f172a',fontSize:'15px' }}>
-                {summaryType==='daily'?`📅 ${formatDateLabel(today)}`:summaryType==='weekly'?'📆 This Week':`🗓 ${new Date().toLocaleDateString('en-GB',{month:'long',year:'numeric'})}`}
+                {summaryType==='daily'?`📅 ${formatDateLabel(today)}`:summaryType==='weekly'?'📆 This Week':`🗓 ${monthLabel}`}
               </h3>
               {summaryDates.filter(date => date <= today).reverse().map(date => {
                 const log      = allLogs.find(l => String(l.date).substring(0, 10) === date);
@@ -709,7 +730,7 @@ export default function EmployeePage() {
                       </div>
                       <div style={{ display:'flex',gap:'12px',alignItems:'center' }}>
                         {log && <span style={{ color:isSubmitted?'#94a3b8':'#cbd5e1',fontSize:'11px' }}>In: {log.office_in||'--'} | Out: {log.office_out||'--'}</span>}
-                        <span style={{ color:isSubmitted?'#4ade80':'#94a3b8',fontWeight:'900',fontSize:'14px' }}>⚡ {fmtHours(log?.total_productive_hours||0)}</span>
+                        <span style={{ color:isSubmitted?'#4ade80':'#94a3b8',fontWeight:'900',fontSize:'14px' }}>⚡ {fmtHours(dayTasks.length ? dayTaskHrs(date) : (log?.total_productive_hours||0))}</span>
                         <span style={{ fontSize:'10px',fontWeight:'700',padding:'2px 8px',borderRadius:'8px',background:isSubmitted?'rgba(16,185,129,0.2)':'rgba(239,68,68,0.1)',color:isSubmitted?'#10B981':'#EF4444' }}>
                           {isSubmitted?'Submitted':'Pending'}
                         </span>

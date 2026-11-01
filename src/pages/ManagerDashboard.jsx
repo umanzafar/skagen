@@ -18,7 +18,10 @@ import { BRAND, brandGradient, brandButtonGradient } from '../theme';
 
 // ── helpers ──────────────────────────────────────────────────────────────
 const norm = (s) => String(s || '').trim().toLowerCase();
-const todayStr = () => new Date().toISOString().split('T')[0];
+// Local "YYYY-MM-DD" — toISOString() is UTC, which in Pakistan (UTC+5) shifts every
+// local midnight back to the previous day (month showed 2nd–29th, not 1st–30th)
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const todayStr = () => ymd(new Date());
 
 const STATUS_COLOR = {
   'Briefed': '#6B7280', 'In Progress': '#3B82F6',
@@ -71,18 +74,18 @@ const getWeekRange = (ref) => {
   const d = new Date(ref + 'T00:00:00'), day = d.getDay();
   const mon = new Date(d); mon.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
   const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-  return { start: mon.toISOString().split('T')[0], end: sun.toISOString().split('T')[0] };
+  return { start: ymd(mon), end: ymd(sun) };
 };
 const getMonthRange = (ref) => {
   const d = new Date(ref + 'T00:00:00');
   return {
-    start: new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split('T')[0],
-    end: new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().split('T')[0]
+    start: ymd(new Date(d.getFullYear(), d.getMonth(), 1)),
+    end: ymd(new Date(d.getFullYear(), d.getMonth() + 1, 0))
   };
 };
 const getDatesInRange = (start, end) => {
   const dates = [], cur = new Date(start + 'T00:00:00'), last = new Date(end + 'T00:00:00');
-  while (cur <= last) { dates.push(cur.toISOString().split('T')[0]); cur.setDate(cur.getDate() + 1); }
+  while (cur <= last) { dates.push(ymd(cur)); cur.setDate(cur.getDate() + 1); }
   return dates;
 };
 const fmtDate = (d) => new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
