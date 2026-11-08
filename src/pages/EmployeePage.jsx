@@ -20,7 +20,11 @@ const AYAT_EN  = '"Integrity is what remains when no one is watching — because
 // Local "YYYY-MM-DD" — toISOString() is UTC, which in Pakistan (UTC+5) shifts every
 // local midnight back to the previous day (month showed 2nd–29th, not 1st–30th)
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const todayLocal = () => ymd(new Date());
+// Work day runs 10 AM to 10 AM: before 10 AM still belongs to the previous date,
+// so a night shift stays on the date it started
+const WORKDAY_START_HOUR = 10;
+const workNow = () => { const d = new Date(); if (d.getHours() < WORKDAY_START_HOUR) d.setDate(d.getDate() - 1); return d; };
+const todayLocal = () => ymd(workNow());
 
 const formatDateLabel = (dateStr) =>
   new Date(dateStr + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long' });
@@ -94,14 +98,14 @@ const nightLabel   = (officeIn, officeOut) => {
 // Employee khud date select karta hai — wahi date use hogi
 
 // offset: 0 = this month, -1 = last month, ...
-const monthStart = (offset = 0) => { const now = new Date(); return new Date(now.getFullYear(), now.getMonth() + offset, 1); };
+const monthStart = (offset = 0) => { const now = workNow(); return new Date(now.getFullYear(), now.getMonth() + offset, 1); };
 const getMonthDates = (offset = 0) => {
   const first = monthStart(offset), yr = first.getFullYear(), mo = first.getMonth();
   const last = new Date(yr, mo + 1, 0).getDate();
   return Array.from({ length: last }, (_, i) => ymd(new Date(yr, mo, i + 1)));
 };
 const getWeekDates = () => {
-  const now = new Date(), day = now.getDay();
+  const now = workNow(), day = now.getDay();
   const mon = new Date(now); mon.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
   return Array.from({ length: 7 }, (_, i) => { const d = new Date(mon); d.setDate(mon.getDate() + i); return ymd(d); });
 };
@@ -128,6 +132,8 @@ export default function EmployeePage() {
     } : null;
   });
   const today     = todayLocal();
+  // calendar date differs from `today` only before 10 AM — lets an early starter pick the new date
+  const calendarToday = ymd(new Date());
 
   const [clock, setClock]               = useState('');
   const [activeTab, setActiveTab]       = useState('today');
@@ -403,6 +409,7 @@ export default function EmployeePage() {
   const hasNewTasks  = tasks.some(t => !isTaskLocked(t));
   // eslint-disable-next-line no-unused-vars
   const canSubmit    = !submitted && selectedDate === today;
+  const isWorkDate   = selectedDate === today || selectedDate === calendarToday;
 
   // Summary
   const getSummaryDates = () => summaryType === 'daily' ? [today] : summaryType === 'weekly' ? getWeekDates() : getMonthDates(monthOffset);
@@ -494,14 +501,14 @@ export default function EmployeePage() {
               <div style={{ marginBottom:'18px',paddingBottom:'18px',borderBottom:'2px solid #f1f5f9' }}>
                 <label style={{ fontWeight:'700',display:'block',marginBottom:'8px',fontSize:'13px',color:'#475569' }}>📅 Date Select Karein</label>
                 <div style={{ display:'flex',alignItems:'center',gap:'12px',flexWrap:'wrap' }}>
-                  <input type="date" value={selectedDate} max={today} onChange={e => handleDateChange(e.target.value)}
+                  <input type="date" value={selectedDate} max={calendarToday} onChange={e => handleDateChange(e.target.value)}
                     style={{ padding:'10px 14px',borderRadius:'10px',border:'2px solid #cbd5e1',fontSize:'14px',outline:'none',background:'white',color:'#1e293b',fontWeight:'600',cursor:'pointer' }}/>
                   <span style={{ fontSize:'14px',color:'#475569',fontWeight:'700' }}>{formatDateLabel(selectedDate)}</span>
                   {selectedDate < today && <span style={{ background:'#FEF2F2',color:'#EF4444',padding:'3px 10px',borderRadius:'10px',fontSize:'11px',fontWeight:'700' }}>📅 Past Date</span>}
                 </div>
                 {/* FIX 2: Night shift note */}
                 <p style={{ marginTop:'8px',fontSize:'11px',color:'#94a3b8' }}>
-                  💡 Raat ke kaam (10 PM – 4 AM) ke liye — us date ko select karein jab kaam shuru kiya
+                  💡 Kaam ka din 10 AM se agle din 10 AM tak hai — raat ka kaam usi date mein aayega jab shuru kiya
                 </p>
               </div>
 
@@ -644,7 +651,7 @@ export default function EmployeePage() {
                     )}
 
                     {/* Save individual task button — only for unlocked tasks on today */}
-                    {!locked && selectedDate === today && (
+                    {!locked && isWorkDate && (
                       <button
                         onClick={() => handleSaveTask(task.id)}
                         style={{ marginTop:'12px',width:'100%',padding:'9px',background:'linear-gradient(135deg,#0369a1,#0284c7)',color:'white',border:'none',borderRadius:'10px',fontWeight:'700',fontSize:'13px',cursor:'pointer',boxShadow:'0 2px 8px rgba(3,105,161,0.3)' }}
@@ -657,7 +664,7 @@ export default function EmployeePage() {
               })}
 
               {/* FIX 3: Add task button — ALWAYS visible on today's date, even if some tasks are locked */}
-              {selectedDate === today && (
+              {isWorkDate && (
                 <button onClick={() => setTasks(t => [...t, newTask()])}
                   style={{ width:'100%',padding:'12px',border:'2px dashed #10B981',borderRadius:'12px',background:'#F0FDF4',color:'#059669',fontWeight:'700',fontSize:'14px',cursor:'pointer',marginBottom:'14px' }}>
                   + Naya Task Add Karein
@@ -674,7 +681,7 @@ export default function EmployeePage() {
 
             {/* FIX 3: Submit button — visible on today even if some tasks are already submitted
                 Only submits NEW (unlocked) tasks + locks office time */}
-            {selectedDate === today && (
+            {isWorkDate && (
               <button onClick={handleSubmit} disabled={saving}
                 style={{ width:'100%',padding:'18px',background:saving?'#94a3b8':'linear-gradient(135deg,#DC2626,#EF4444)',color:'white',border:'none',borderRadius:'16px',fontWeight:'900',fontSize:'18px',cursor:saving?'not-allowed':'pointer',boxShadow:saving?'none':'0 8px 24px rgba(239,68,68,0.4)',marginBottom:'24px' }}>
                 {saving ? '⏳ Submit ho raha hai...'
@@ -715,7 +722,7 @@ export default function EmployeePage() {
               <h3 style={{ fontWeight:'800',marginBottom:'16px',color:'#0f172a',fontSize:'15px' }}>
                 {summaryType==='daily'?`📅 ${formatDateLabel(today)}`:summaryType==='weekly'?'📆 This Week':`🗓 ${monthLabel}`}
               </h3>
-              {summaryDates.filter(date => date <= today).reverse().map(date => {
+              {summaryDates.filter(date => date <= calendarToday).reverse().map(date => {
                 const log      = allLogs.find(l => String(l.date).substring(0, 10) === date);
                 const dayTasks = allTasksData.filter(t => String(t.date).substring(0, 10) === date && t.task_name);
                 if (!log && dayTasks.length === 0) return null;
@@ -756,7 +763,7 @@ export default function EmployeePage() {
                   </div>
                 );
               }).filter(Boolean)}
-              {summaryDates.filter(d => d<=today && (allLogs.some(l=>String(l.date).substring(0,10)===d)||allTasksData.some(t=>String(t.date).substring(0,10)===d&&t.task_name))).length===0 && (
+              {summaryDates.filter(d => d<=calendarToday && (allLogs.some(l=>String(l.date).substring(0,10)===d)||allTasksData.some(t=>String(t.date).substring(0,10)===d&&t.task_name))).length===0 && (
                 <div style={{ textAlign:'center',padding:'40px',color:'#94a3b8' }}>
                   <div style={{ fontSize:'40px',marginBottom:'10px' }}>📭</div>
                   <p>Koi data nahi hai</p>

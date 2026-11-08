@@ -21,7 +21,9 @@ const norm = (s) => String(s || '').trim().toLowerCase();
 // Local "YYYY-MM-DD" — toISOString() is UTC, which in Pakistan (UTC+5) shifts every
 // local midnight back to the previous day (month showed 2nd–29th, not 1st–30th)
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-const todayStr = () => ymd(new Date());
+// Work day runs 10 AM to 10 AM (same as the employee page): before 10 AM opens the previous date
+const WORKDAY_START_HOUR = 10;
+const todayStr = () => { const d = new Date(); if (d.getHours() < WORKDAY_START_HOUR) d.setDate(d.getDate() - 1); return ymd(d); };
 
 const STATUS_COLOR = {
   'Briefed': '#6B7280', 'In Progress': '#3B82F6',
