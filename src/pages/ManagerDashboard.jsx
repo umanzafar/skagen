@@ -375,7 +375,53 @@ export default function ManagerDashboard() {
       };
     }).filter(d => d.hrs > 0 || d.tasks > 0);
 
-    return { empSummary, dailyChart };
+    return { empSummary, dailyChart, dateRange };
+  };
+
+  // CSV report of the current Analytics view (period + employee filter) — opens in Excel for printing
+  const downloadReportCsv = (empSummary, dateRange) => {
+    const cell = (v) => {
+      const s = String(v ?? '');
+      return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const row = (cols) => cols.map(cell).join(',');
+    const periodName = analyticsPeriod === 'daily' ? 'Daily' : analyticsPeriod === 'weekly' ? 'Weekly' : 'Monthly';
+    const lines = [
+      row([`Skagen ${periodName} Report`]),
+      row(['Period', `${dateRange[0]} to ${dateRange[dateRange.length - 1]}`]),
+      row(['Employee', analyticsEmp === 'all' ? 'All Employees' : analyticsEmp]),
+      '',
+      row(['SUMMARY']),
+      row(['Employee', 'Designation', 'Days Worked', 'Total Hours', 'Avg Hours/Day', 'Tasks', 'Approved', 'Submitted', 'Rejected']),
+      ...empSummary.map(s => row([s.emp.name, s.emp.designation, s.daysWorked, s.totalHrs, s.avgHrs, s.totalTasks, s.approved, s.submitted, s.rejected])),
+      row(['TOTAL', '', '', parseFloat(empSummary.reduce((t, s) => t + s.totalHrs, 0).toFixed(1)), '', empSummary.reduce((t, s) => t + s.totalTasks, 0)]),
+      '',
+      row(['DETAILS']),
+      row(['Date', 'Employee', 'Office In', 'Office Out', 'Task', 'Start', 'End', 'Break (min)', 'Hours', 'Status', 'Notes', 'Manager Note']),
+    ];
+    dateRange.forEach(date => {
+      empSummary.forEach(({ emp, empLogs, empTasks }) => {
+        const log = empLogs.find(l => l.date === date);
+        const dayTasks = empTasks.filter(t => t.date === date);
+        if (!log && dayTasks.length === 0) return;
+        const inOut = [log?.office_in || '', log?.office_out || ''];
+        if (dayTasks.length === 0) { lines.push(row([date, emp.name, ...inOut, '', '', '', '', log?.total_productive_hours || 0, log?.submitted ? 'Submitted' : 'Pending'])); return; }
+        dayTasks.forEach(t => lines.push(row([
+          date, emp.name, ...inOut, t.task_name, t.start_time, t.end_time, t.break_time, t.productive_hours, t.status, t.notes || '',
+          t.manager_note && t.manager_note !== 'Assigned by Manager' ? t.manager_note : '',
+        ])));
+      });
+    });
+    // BOM so Excel reads Urdu/emoji text as UTF-8
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const who = analyticsEmp === 'all' ? 'all' : analyticsEmp.replace(/\s+/g, '-');
+    const when = analyticsPeriod === 'monthly' ? dateRange[0].substring(0, 7) : dateRange[0];
+    a.href = url; a.download = `skagen-${periodName.toLowerCase()}-report-${who}-${when}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    toast.success('📥 Report download ho gayi!');
   };
 
   if (loading) return (
@@ -696,7 +742,7 @@ export default function ManagerDashboard() {
 
         {/* ══════════════════ ANALYTICS ══════════════════ */}
         {tab === 'analytics' && (() => {
-          const { empSummary, dailyChart } = getAnalyticsData();
+          const { empSummary, dailyChart, dateRange } = getAnalyticsData();
           const periodLabel = analyticsPeriod === 'daily' ? fmtDate(analyticsRef)
             : analyticsPeriod === 'weekly' ? `Week of ${fmtDate(getWeekRange(analyticsRef).start)}`
             : fmtMonth(analyticsRef);
@@ -731,6 +777,10 @@ export default function ManagerDashboard() {
                   <p style={{ fontSize:'11px',color:'#0369a1',fontWeight:'600' }}>Period</p>
                   <p style={{ fontSize:'14px',color:'#0c4a6e',fontWeight:'800' }}>{periodLabel}</p>
                 </div>
+                <button onClick={() => downloadReportCsv(empSummary, dateRange)}
+                  style={{ padding:'11px 18px',background:'linear-gradient(135deg,#059669,#10B981)',color:'white',border:'none',borderRadius:'10px',cursor:'pointer',fontWeight:'800',fontSize:'13px',boxShadow:'0 4px 12px rgba(16,185,129,0.3)' }}>
+                  📥 Download CSV
+                </button>
               </div>
 
               {/* FIX 1 — Employee summary cards with Office In/Out */}
