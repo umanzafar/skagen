@@ -5,6 +5,7 @@ import { getDailyLogs, getTasks, getEmployees, saveTask as apiSaveTask, submitDa
 import { v4 as uuidv4 } from 'uuid';
 import { BRAND, brandGradient, brandButtonGradient } from '../theme';
 import TeamChat from '../components/TeamChat';
+import VoiceDictation from '../components/VoiceDictation';
 
 // ─── constants ────────────────────────────────────────────────────────────────
 const STATUS_COLORS = {
@@ -291,6 +292,15 @@ export default function EmployeePage() {
         field === 'break_time' ? Number(value) : Number(t.break_time)
       );
       return updated;
+    }));
+  };
+
+  // Voice dictation: append each spoken phrase to the task's notes as plain text
+  const appendNote = (id, text) => {
+    setTasks(prev => prev.map(t => {
+      if (t.id !== id || isTaskLocked(t)) return t;
+      const cur = String(t.notes || '');
+      return { ...t, notes: cur && !/\s$/.test(cur) ? `${cur} ${text}` : cur + text };
     }));
   };
 
@@ -629,6 +639,7 @@ export default function EmployeePage() {
                         <textarea placeholder="Notes..." value={task.notes}
                           onChange={e => updateTask(task.id, 'notes', e.target.value)} disabled={locked} rows={2}
                           style={{ width:'100%',padding:'8px 10px',borderRadius:'8px',border:'2px solid #e2e8f0',fontSize:'12px',outline:'none',resize:'vertical',background:locked?'#f8fafc':'white',color:'#475569',fontFamily:'inherit',boxSizing:'border-box' }}/>
+                        {!locked && <VoiceDictation onText={text => appendNote(task.id, text)}/>}
                       </div>
                       <div>
                         <label style={{ fontSize:'10px',fontWeight:'700',color:'#10B981',display:'block',marginBottom:'4px' }}>⚡ Productive</label>
